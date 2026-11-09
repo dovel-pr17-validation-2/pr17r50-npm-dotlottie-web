@@ -1,0 +1,16 @@
+'use client';
+
+import { DotLottie, DotLottieWorker } from '@lottiefiles/dotlottie-web';
+
+export type * from '@lottiefiles/dotlottie-web';
+export * from './dotlottie';
+export * from './dotlottie-worker';
+
+export const setWasmUrl = (url: string): void => {
+  DotLottieWorker.setWasmUrl(url);
+  DotLottie.setWasmUrl(url);
+};
+
+export const setWorkerUrl = (url: string): void => {
+  DotLottieWorker.setWorkerUrl(url);
+};

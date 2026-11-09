@@ -1,0 +1,62 @@
+{
+  "name": "@lottiefiles/dotlottie-solid",
+  "version": "0.7.1",
+  "type": "module",
+  "description": "Solid wrapper around the dotlottie-web library",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LottieFiles/dotlottie-web.git",
+    "directory": "packages/solid"
+  },
+  "homepage": "https://docs.lottiefiles.com/en/runtimes?utm_source=npm&utm_medium=package",
+  "bugs": "https://github.com/LottieFiles/dotlottie-web/issues",
+  "author": "LottieFiles",
+  "contributors": [],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.17.0",
+    "npm": ">=9.5.0"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "solid",
+    "dotlottie",
+    "lottie",
+    "player",
+    "animation",
+    "web",
+    "canvas",
+    "javascript",
+    "thorvg"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "lint": "biome check --write .",
+    "stats:ts": "tsc -p tsconfig.build.json --extendedDiagnostics",
+    "type-check": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "solid-js": "^1.6.12"
+  },
+  "dependencies": {
+    "@lottiefiles/dotlottie-web": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "solid-js": "^1.9.10",
+    "tsdown": "^0.21.10",
+    "typescript": "6.0.3",
+    "unplugin-solid": "^1.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "sideEffects": false
+}

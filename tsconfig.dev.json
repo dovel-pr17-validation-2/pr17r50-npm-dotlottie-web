@@ -1,0 +1,33 @@
+{
+  // Extend from the org config
+  "extends": "@lottiefiles/tsconfig",
+
+  "compilerOptions": {
+    // Target ES version
+    "target": "ESNext",
+
+    // Target module system
+    "module": "ESNext",
+
+    // Silence TS 6.0 deprecation errors inherited from @lottiefiles/tsconfig
+    // (downlevelIteration, moduleResolution=node10).
+    "ignoreDeprecations": "6.0"
+  },
+
+  "exclude": [
+    // Exclude node_modules
+    "**/node_modules",
+
+    // Exclude non-code test resources
+    "fixtures",
+    "**/__snapshots__",
+    "**/coverage",
+
+    // Exclude builds
+    "**/build",
+    "**/dist",
+    "**/artifacts",
+
+    "**/tmp"
+  ]
+}

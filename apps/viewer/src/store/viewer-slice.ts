@@ -1,0 +1,243 @@
+import { createSlice } from '@reduxjs/toolkit';
+
+export const PlayerStates = ['idle', 'loading', 'playing', 'paused', 'stopped'] as const;
+
+export type Renderer = 'software' | 'webgl' | 'webgpu';
+
+interface AnimationSlice {
+  src: string;
+  isJson: boolean;
+  theme: string;
+  speed: number;
+  volume: number;
+  muted: boolean;
+  autoplay: boolean;
+  loop: boolean;
+  backgroundColor: string;
+  currentFrame: number;
+  totalFrames: number;
+  themes: { id: string; animations: string[] }[];
+  animations: string[];
+  activeAnimationId: string;
+  activeThemeId: string;
+  segment: number[];
+  segmentInput: number[];
+  useFrameInterpolation: boolean;
+  mode: 'forward' | 'reverse' | 'bounce' | 'reverse-bounce';
+  currentState: (typeof PlayerStates)[number];
+  userSrc: string;
+  loadTime: {
+    lottieWeb: number;
+    dotLottie: number;
+  };
+  markers: string[];
+  activeMarker: string;
+  stateMachines: { id: string }[];
+  activeStateMachineId: string;
+  renderer: Renderer;
+  showLottieWeb: boolean;
+  version: string;
+  availableVersions: { reactVersion: string; coreVersion: string }[];
+}
+
+export const DEFAULT_SRC = 'https://lottie.host/779299c1-d174-4359-a66b-6253897b33e7/yRJTT0fCfq.lottie';
+
+const initialState: AnimationSlice = {
+  src: DEFAULT_SRC,
+  isJson: true,
+  theme: '',
+  speed: 1,
+  volume: 1,
+  muted: false,
+  autoplay: true,
+  loop: true,
+  backgroundColor: '#F3F6F8',
+  currentFrame: 0,
+  totalFrames: 0,
+  themes: [],
+  animations: [],
+  activeAnimationId: '',
+  activeThemeId: '',
+  segment: [],
+  segmentInput: [1, 2],
+  currentState: 'idle',
+  mode: 'forward',
+  userSrc: '',
+  useFrameInterpolation: true,
+  loadTime: {
+    lottieWeb: 0,
+    dotLottie: 0,
+  },
+  markers: [],
+  activeMarker: '',
+  stateMachines: [],
+  activeStateMachineId: '',
+  renderer: 'software',
+  showLottieWeb: false,
+  version: 'local',
+  availableVersions: [],
+};
+
+export const animationSlice = createSlice({
+  name: 'viewer',
+  initialState,
+  reducers: {
+    setSrc: (state, action) => {
+      state.activeAnimationId = '';
+      state.activeMarker = '';
+      state.markers = [];
+      state.activeStateMachineId = '';
+      state.stateMachines = [];
+      state.src = action.payload;
+      if (state.src.endsWith('.json') || state.src.startsWith('data:application/json')) {
+        state.isJson = true;
+      } else {
+        state.isJson = false;
+      }
+    },
+    setIsJson: (state, action) => {
+      state.isJson = action.payload;
+    },
+    setTheme: (state, action) => {
+      state.theme = action.payload;
+    },
+    setSpeed: (state, action) => {
+      state.speed = action.payload;
+    },
+    setVolume: (state, action) => {
+      state.volume = action.payload;
+      state.muted = false;
+    },
+    setMuted: (state, action) => {
+      state.muted = action.payload;
+    },
+    setAutoplay: (state, action) => {
+      state.autoplay = action.payload;
+    },
+    setLoop: (state, action) => {
+      state.loop = action.payload;
+    },
+    setBackgroundColor: (state, action) => {
+      state.backgroundColor = action.payload;
+    },
+    setCurrentFrame: (state, action) => {
+      state.currentFrame = action.payload;
+    },
+    setTotalFrames: (state, action) => {
+      state.totalFrames = action.payload;
+      state.segmentInput = [1, action.payload];
+    },
+    setCurrentState: (state, action) => {
+      state.currentState = action.payload;
+    },
+    setMdode: (state, action) => {
+      state.mode = action.payload;
+    },
+    setThemes: (state, action) => {
+      state.themes = action.payload;
+    },
+    setAnimations: (state, action) => {
+      state.animations = action.payload;
+    },
+    setActiveAnimationId: (state, action) => {
+      state.activeAnimationId = action.payload;
+    },
+    setActiveThemeId: (state, action) => {
+      state.activeThemeId = action.payload;
+    },
+    setUserSrc: (state, action) => {
+      state.userSrc = action.payload;
+    },
+    resetUserConfig: (state) => {
+      state.userSrc = '';
+      state.activeAnimationId = '';
+      state.activeMarker = '';
+      state.markers = [];
+      state.activeStateMachineId = '';
+      state.stateMachines = [];
+      state.src = DEFAULT_SRC;
+      if (state.src.endsWith('.json') || state.src.startsWith('data:application/json')) {
+        state.isJson = true;
+      } else {
+        state.isJson = false;
+      }
+    },
+    setLoadTimeDotLottie: (state, action) => {
+      state.loadTime.dotLottie = action.payload;
+    },
+    setLoadTimeLottieWeb: (state, action) => {
+      state.loadTime.lottieWeb = action.payload;
+    },
+    setSegment: (state, action) => {
+      state.segment = action.payload;
+    },
+    setSegmentInput: (state, action) => {
+      state.segmentInput = action.payload;
+    },
+    setUseFrameInterpolation: (state, action) => {
+      state.useFrameInterpolation = action.payload;
+    },
+    setMarkers: (state, action) => {
+      state.markers = action.payload;
+    },
+    setActiveMarker: (state, action) => {
+      state.activeMarker = action.payload;
+    },
+    setStateMachines: (state, action) => {
+      state.stateMachines = action.payload;
+    },
+    setActiveStateMachineId: (state, action) => {
+      state.activeStateMachineId = action.payload;
+    },
+    setRenderer: (state, action) => {
+      state.renderer = action.payload;
+    },
+    setShowLottieWeb: (state, action) => {
+      state.showLottieWeb = action.payload;
+    },
+    setVersion: (state, action) => {
+      state.version = action.payload;
+    },
+    setAvailableVersions: (state, action) => {
+      state.availableVersions = action.payload;
+    },
+  },
+});
+
+// Action creators are generated for each case reducer function
+export const {
+  setSrc,
+  setTheme,
+  setSpeed,
+  setVolume,
+  setMuted,
+  setAutoplay,
+  setLoop,
+  setBackgroundColor,
+  setCurrentFrame,
+  setTotalFrames,
+  setCurrentState,
+  setMdode,
+  setThemes,
+  setAnimations,
+  setActiveAnimationId,
+  setActiveThemeId,
+  setUserSrc,
+  resetUserConfig,
+  setIsJson,
+  setLoadTimeDotLottie,
+  setLoadTimeLottieWeb,
+  setSegment,
+  setSegmentInput,
+  setUseFrameInterpolation,
+  setMarkers,
+  setActiveMarker,
+  setStateMachines,
+  setActiveStateMachineId,
+  setRenderer,
+  setShowLottieWeb,
+  setVersion,
+  setAvailableVersions,
+} = animationSlice.actions;
+
+export default animationSlice.reducer;

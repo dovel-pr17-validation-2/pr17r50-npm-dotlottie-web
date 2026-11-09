@@ -1,0 +1,28 @@
+# Build artifacts
+build/
+dist/
+artifacts/
+
+# Changelog
+CHANGELOG.md
+
+# IDE related
+.idea/
+.history/
+
+# Package management
+node_modules/
+.yarn/
+
+# Testing
+fixtures
+__snapshots__
+coverage/
+reports
+
+# Temporary or local data
+temp/
+tmp/
+
+
+dotlottie-rs

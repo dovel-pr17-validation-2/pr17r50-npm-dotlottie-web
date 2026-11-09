@@ -1,0 +1,37 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": ["tsconfig.build.json", "tsconfig.dev.json", "tsconfig.json"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "stats:ts": {
+      "outputs": []
+    },
+    "test": {
+      "cache": false,
+      "dependsOn": [],
+      "outputs": []
+    },
+    "test:coverage": {
+      "cache": false,
+      "dependsOn": [],
+      "outputs": ["coverage/**"]
+    },
+    "type-check": {
+      "cache": false
+    },
+    "lint": {
+      "cache": false,
+      "outputs": []
+    },
+    "update-releases": {
+      "dependsOn": ["^update-releases"]
+    },
+    "clean": {},
+    "dev": {
+      "cache": false
+    }
+  }
+}

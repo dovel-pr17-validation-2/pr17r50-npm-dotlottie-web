@@ -1,0 +1,738 @@
+/* eslint-disable node/no-unsupported-features/node-builtins */
+import type { DotLottie, DotLottieWorker } from '@lottiefiles/dotlottie-web';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+
+import { type DotLottieWorkerWC, setWasmUrl } from '../src';
+import type { DotLottieWC } from '../src/dotlottie-wc';
+
+const src = new URL('../../../fixtures/test.lottie', import.meta.url).href;
+const lottieSrc = new URL('../../../fixtures/test.json', import.meta.url).href;
+const smSrc = new URL('../../../fixtures/sm.lottie', import.meta.url).href;
+
+setWasmUrl(new URL('../../web/src/core/dotlottie-player.wasm', import.meta.url).href);
+
+const render = <T extends 'dotlottie-wc' | 'dotlottie-worker-wc'>(
+  elementName: T,
+  attributes: Record<string, string> = {},
+): {
+  element: T extends 'dotlottie-wc' ? DotLottieWC : DotLottieWorkerWC;
+  rerender: (props: Record<string, string>) => void;
+  unmount: () => void;
+} => {
+  const element = document.createElement(elementName) as T extends 'dotlottie-wc' ? DotLottieWC : DotLottieWorkerWC;
+
+  Object.entries(attributes).forEach(([key, value]) => {
+    element.setAttribute(key, value);
+  });
+
+  document.body.appendChild(element);
+
+  const unmount = (): void => {
+    document.body.removeChild(element);
+  };
+
+  const rerender = (givenAttributes: Record<string, string>): void => {
+    const currentAttributes = element.getAttributeNames();
+
+    // remove attributes not present in the new attributes
+    currentAttributes.forEach((key) => {
+      if (!(key in givenAttributes)) {
+        element.removeAttribute(key);
+      }
+    });
+
+    Object.entries(givenAttributes).forEach(([key, value]) => {
+      element.setAttribute(key, value);
+    });
+  };
+
+  return { element, rerender, unmount };
+};
+
+const cleanup = (): void => {
+  document.body.innerHTML = '';
+};
+
+describe.each([
+  { elementName: 'dotlottie-wc' as const },
+  { elementName: 'dotlottie-worker-wc' as const },
+])('$elementName', ({ elementName }) => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  test('should be defined', () => {
+    const customElements = window.customElements;
+
+    expect(customElements.get(elementName)).toBeDefined();
+  });
+
+  test('should instantiate dotLottie instance on connectedCallback', () => {
+    const { element } = render(elementName, { src });
+
+    vi.spyOn(element, 'connectedCallback');
+
+    expect(element.dotLottie).toBeDefined();
+  });
+
+  test('property getters reflect attribute values (issue #419)', () => {
+    const { element } = render(elementName, {
+      src,
+      loop: 'true',
+      autoplay: 'true',
+      speed: '2',
+      mode: 'bounce',
+      marker: 'Marker_1',
+      backgroundcolor: '#ff00ff',
+      segment: '[0, 20]',
+      themeid: 'dark',
+    });
+
+    expect(element.src).toBe(src);
+    expect(element.loop).toBe(true);
+    expect(element.autoplay).toBe(true);
+    expect(element.speed).toBe(2);
+    expect(element.mode).toBe('bounce');
+    expect(element.marker).toBe('Marker_1');
+    expect(element.backgroundColor).toBe('#ff00ff');
+    expect(element.segment).toEqual([0, 20]);
+    expect(element.themeId).toBe('dark');
+  });
+
+  test('getters read through to live dotLottie state after imperative changes', async () => {
+    const { element } = render(elementName, { src, loop: 'true', speed: '2' });
+
+    const dotLottie = element.dotLottie as DotLottie | DotLottieWorker;
+
+    await vi.waitFor(
+      () => {
+        expect(dotLottie.isLoaded).toBe(true);
+      },
+      { timeout: 5000 },
+    );
+
+    expect(element.autoplay).toBe(false);
+    expect(element.mode).toBe('forward');
+    expect(element.useFrameInterpolation).toBe(true);
+    expect(element.animationId).toBe('test');
+
+    dotLottie.setSpeed(3);
+    dotLottie.setLoop(false);
+    dotLottie.setMode('reverse');
+    dotLottie.setBackgroundColor('#00ff00');
+    dotLottie.setUseFrameInterpolation(false);
+    dotLottie.setMarker('Marker_1');
+
+    await vi.waitFor(
+      () => {
+        expect(element.speed).toBe(3);
+        expect(element.loop).toBe(false);
+        expect(element.mode).toBe('reverse');
+        expect(element.backgroundColor).toBe('#00ff00');
+        expect(element.useFrameInterpolation).toBe(false);
+        expect(element.marker).toBe('Marker_1');
+        expect(element.renderConfig).toEqual(dotLottie.renderConfig);
+      },
+      { timeout: 5000 },
+    );
+
+    // Checked separately: setMarker() overwrites the segment.
+    dotLottie.setSegment(0, 10);
+
+    await vi.waitFor(
+      () => {
+        expect(element.segment).toEqual([0, 10]);
+      },
+      { timeout: 5000 },
+    );
+  });
+
+  test('property writes are forwarded to the player and read back', async () => {
+    const { element } = render(elementName, { src, loop: 'true' });
+
+    const dotLottie = element.dotLottie as DotLottie | DotLottieWorker;
+
+    await vi.waitFor(
+      () => {
+        expect(dotLottie.isLoaded).toBe(true);
+      },
+      { timeout: 5000 },
+    );
+
+    const fullRange = dotLottie.segment;
+
+    element.loop = false;
+    element.speed = 3;
+    element.mode = 'reverse';
+    element.segment = [0, 10];
+
+    await vi.waitFor(
+      () => {
+        expect(dotLottie.loop).toBe(false);
+        expect(dotLottie.speed).toBe(3);
+        expect(dotLottie.mode).toBe('reverse');
+        expect(dotLottie.segment).toEqual([0, 10]);
+      },
+      { timeout: 5000 },
+    );
+
+    expect(element.loop).toBe(false);
+    expect(element.speed).toBe(3);
+
+    element.segment = undefined;
+
+    await vi.waitFor(
+      () => {
+        expect(dotLottie.segment).toEqual(fullRange);
+      },
+      { timeout: 5000 },
+    );
+  });
+
+  test('getters return declared attribute values after unmount destroys the instance', () => {
+    const { element, unmount } = render(elementName, { src, loop: 'true', speed: '2' });
+
+    unmount();
+
+    expect(element.dotLottie).toBeNull();
+    expect(element.loop).toBe(true);
+    expect(element.speed).toBe(2);
+  });
+
+  test('changing src reloads with declared attribute values, not mutated player state (issue #419)', async () => {
+    const { element, rerender } = render(elementName, { src, loop: 'true' });
+
+    const dotLottie = element.dotLottie as DotLottie | DotLottieWorker;
+
+    await vi.waitFor(
+      () => {
+        expect(dotLottie.isLoaded).toBe(true);
+      },
+      { timeout: 5000 },
+    );
+
+    dotLottie.setLoop(false);
+
+    await vi.waitFor(
+      () => {
+        expect(element.loop).toBe(false);
+      },
+      { timeout: 5000 },
+    );
+
+    rerender({ src: lottieSrc, loop: 'true' });
+
+    await vi.waitFor(
+      () => {
+        expect(element.loop).toBe(true);
+      },
+      { timeout: 5000 },
+    );
+  });
+
+  test('calls dotLottie.destroy on unmount', async () => {
+    const { element, unmount } = render(elementName, { src });
+
+    const dotLottie = element.dotLottie as DotLottie | DotLottieWorker;
+
+    await vi.waitFor(
+      () => {
+        expect(dotLottie.isLoaded).toBe(true);
+      },
+      { timeout: 5000 },
+    );
+
+    const destroy = vi.spyOn(dotLottie, 'destroy');
+
+    unmount();
+
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(element.dotLottie).toBeNull();
+  });
+
+  test.todo('should render canvas element', async () => {
+    const { element } = render(elementName, { src });
+
+    await vi.waitFor(() => {
+      expect(element.dotLottie?.isLoaded).toBe(true);
+    });
+
+    expect(element.shadowRoot?.innerHTML).toMatchSnapshot();
+  });
+
+  test('should render with data', async () => {
+    // eslint-disable-next-line @typescript-eslint/promise-function-async
+    const animationData = await fetch(lottieSrc).then((res) => res.json());
+
+    const { element } = render(elementName, { data: animationData });
+
+    expect(element).toBeDefined();
+  });
+
+  test('calls dotLottie.setSpeed when speed attribute changes', async () => {
+    const { element, rerender } = render(elementName, { src });
+
+    const dotLottie = element.dotLottie as DotLottie | DotLottieWorker;
+
+    await vi.waitFor(() => {
+      expect(dotLottie.isLoaded).toBe(true);
+    });
+
+    expect(dotLottie.speed).toBe(1);
+
+    const setSpeed = vi.spyOn(dotLottie, 'setSpeed');
+
+    rerender({
+      src,
+      speed: '2',
+    });
+
+    expect(setSpeed).toHaveBeenCalledTimes(1);
+    expect(setSpeed).toHaveBeenCalledWith(2);
+
+    await vi.waitFor(() => {
+      expect(dotLottie.speed).toBe(2);
+    });
+
+    rerender({});
+
+    expect(setSpeed).toHaveBeenCalledTimes(2);
+    expect(setSpeed).toHaveBeenCalledWith(1);
+
+    await vi.waitFor(() => {
+      expect(dotLottie.speed).toBe(1);
+    });
+  });
+
+  test('calls dotLottie.setMarker when marker attribute changes', async () => {
+    const { element, rerender } = render(elementName, { src });
+
+    const dotLottie = element.dotLottie as DotLottie | DotLottieWorker;
+
+    await vi.waitFor(() => {
+      expect(dotLottie.isLoaded).toBe(true);
+    });
+
+    expect(dotLottie.marker).toBe('');
+
+    const setMarker = vi.spyOn(dotLottie, 'setMarker');
+
+    rerender({ src, marker: 'Marker_1' });
+
+    expect(setMarker).toHaveBeenCalledTimes(1);
+    expect(setMarker).toHaveBeenCalledWith('Marker_1');
+
+    await vi.waitFor(() => {
+      expect(dotLottie.marker).toBe('Marker_1');
+    });
+
+    rerender({ src });
+
+    expect(setMarker).toHaveBeenCalledTimes(2);
+    expect(setMarker).toHaveBeenCalledWith('');
+
+    await vi.waitFor(() => {
+      expect(dotLottie.marker).toBe('');
+    });
+  });
+
+  test('calls dotLottie.setLoop when loop attribute changes', async () => {
+    const { element, rerender } = render(elementName, { src });
+
+    const dotLottie = element.dotLottie as DotLottie | DotLottieWorker;
+
+    await vi.waitFor(() => {
+      expect(dotLottie.isLoaded).toBe(true);
+    });
+
+    expect(dotLottie.loop).toBe(false);
+
+    const setLoop = vi.spyOn(dotLottie, 'setLoop');
+
+    rerender({ src, loop: 'true' });
+
+    expect(setLoop).toHaveBeenCalledTimes(1);
+    expect(setLoop).toHaveBeenCalledWith(true);
+
+    await vi.waitFor(() => {
+      expect(dotLottie.loop).toBe(true);
+    });
+
+    rerender({ src });
+
+    expect(setLoop).toHaveBeenCalledTimes(2);
+    expect(setLoop).toHaveBeenCalledWith(false);
+
+    await vi.waitFor(() => {
+      expect(dotLottie.loop).toBe(false);
+    });
+  });
+
+  test('calls dotLottie.setLoopCount when loopcount attribute changes', async () => {
+    const { element, rerender } = render(elementName, { src, loop: 'true' });
+
+    const dotLottie = element.dotLottie as DotLottie | DotLottieWorker;
+
+    await vi.waitFor(() => {
+      expect(dotLottie.isLoaded).toBe(true);
+    });
+
+    const setLoopCount = vi.spyOn(dotLottie, 'setLoopCount');
+
+    rerender({ src, loop: 'true', loopcount: '2' });
+
+    expect(setLoopCount).toHaveBeenCalledTimes(1);
+    expect(setLoopCount).toHaveBeenCalledWith(2);
+
+    rerender({ src, loop: 'true' });
+
+    expect(setLoopCount).toHaveBeenCalledTimes(2);
+    expect(setLoopCount).toHaveBeenCalledWith(0);
+  });
+
+  test('useframeinterpolation="false" attribute on initial render disables interpolation', async () => {
+    const { element } = render(elementName, { src, useframeinterpolation: 'false' });
+
+    const dotLottie = element.dotLottie as DotLottie | DotLottieWorker;
+
+    await vi.waitFor(() => {
+      expect(dotLottie.isLoaded).toBe(true);
+    });
+
+    expect(dotLottie.useFrameInterpolation).toBe(false);
+    expect(element.useFrameInterpolation).toBe(false);
+  });
+
+  test('calls dotLottie.setUseFrameInterpolation when useFrameInterpolation attribute changes', async () => {
+    const { element, rerender } = render(elementName, { src });
+
+    const dotLottie = element.dotLottie as DotLottie | DotLottieWorker;
+
+    await vi.waitFor(() => {
+      expect(dotLottie.isLoaded).toBe(true);
+    });
+
+    expect(dotLottie.useFrameInterpolation).toBe(true);
+
+    const setUseFrameInterpolation = vi.spyOn(dotLottie, 'setUseFrameInterpolation');
+
+    rerender({ src, useframeinterpolation: 'false' });
+
+    expect(setUseFrameInterpolation).toHaveBeenCalledTimes(1);
+    expect(setUseFrameInterpolation).toHaveBeenCalledWith(false);
+
+    await vi.waitFor(() => {
+      expect(dotLottie.useFrameInterpolation).toBe(false);
+    });
+
+    rerender({ src });
+
+    expect(setUseFrameInterpolation).toHaveBeenCalledTimes(2);
+    expect(setUseFrameInterpolation).toHaveBeenCalledWith(true);
+
+    await vi.waitFor(() => {
+      expect(dotLottie.useFrameInterpolation).toBe(true);
+    });
+  });
+
+  test('calls dotLottie.setMode when marker attribute changes', async () => {
+    const { element, rerender } = render(elementName, { src });
+
+    const dotLottie = element.dotLottie as DotLottie | DotLottieWorker;
+
+    await vi.waitFor(() => {
+      expect(dotLottie.isLoaded).toBe(true);
+    });
+
+    const setMode = vi.spyOn(dotLottie, 'setMode');
+
+    rerender({ src, mode: 'bounce' });
+
+    expect(setMode).toHaveBeenCalledTimes(1);
+    expect(setMode).toHaveBeenCalledWith('bounce');
+
+    await vi.waitFor(() => {
+      expect(dotLottie.mode).toBe('bounce');
+    });
+
+    rerender({ src });
+
+    expect(setMode).toHaveBeenCalledTimes(2);
+    expect(setMode).toHaveBeenCalledWith('forward');
+
+    await vi.waitFor(() => {
+      expect(dotLottie.mode).toBe('forward');
+    });
+  });
+
+  test('calls dotLottie.setSegment when segment attribute changes', async () => {
+    const { element, rerender } = render(elementName, { src });
+
+    const dotLottie = element.dotLottie as DotLottie | DotLottieWorker;
+
+    await vi.waitFor(() => {
+      expect(dotLottie.isLoaded).toBe(true);
+    });
+
+    const setSegment = vi.spyOn(dotLottie, 'setSegment');
+    const resetSegment = vi.spyOn(dotLottie, 'resetSegment');
+
+    rerender({ src, segment: JSON.stringify([0, 20]) });
+
+    expect(setSegment).toHaveBeenCalledTimes(1);
+    expect(setSegment).toHaveBeenCalledWith(0, 20);
+
+    await vi.waitFor(() => {
+      expect(dotLottie.segment).toEqual([0, 20]);
+    });
+
+    rerender({ src });
+
+    expect(resetSegment).toHaveBeenCalledTimes(1);
+
+    await vi.waitFor(() => {
+      expect(dotLottie.segment).toEqual([0, dotLottie.totalFrames - 1]);
+    });
+  });
+
+  test('calls dotLottie.load when src attribute changes', async () => {
+    const { element, rerender } = render(elementName, {});
+
+    await vi.waitFor(() => {
+      expect(element.dotLottie?.isReady).toBe(true);
+    });
+
+    const load = vi.spyOn(element.dotLottie as DotLottie | DotLottieWorker, 'load');
+
+    rerender({ src: lottieSrc });
+
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledWith({
+      src: lottieSrc,
+    });
+
+    load.mockClear();
+
+    rerender({});
+
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  test('calls dotLottie.load when data attribute changes', async () => {
+    const { element, rerender } = render(elementName, {});
+
+    await vi.waitFor(() => {
+      expect(element.dotLottie?.isReady).toBe(true);
+    });
+
+    const load = vi.spyOn(element.dotLottie as DotLottie | DotLottieWorker, 'load');
+
+    // eslint-disable-next-line @typescript-eslint/promise-function-async
+    const lottieAnimationData = await fetch(lottieSrc).then((res) => res.text());
+
+    rerender({ data: lottieAnimationData });
+
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledWith({
+      data: lottieAnimationData,
+    });
+
+    load.mockClear();
+
+    rerender({});
+
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  test('calls dotLottie.setBackgroundColor when background-color attribute changes', async () => {
+    const { element, rerender } = render(elementName, {
+      src,
+    });
+
+    // FIX: Can't set config until the dotLottie instance is ready
+    await vi.waitFor(() => {
+      expect(element.dotLottie?.isReady).toBe(true);
+    });
+
+    const dotLottie = element.dotLottie as DotLottie | DotLottieWorker;
+
+    const setBackgroundColor = vi.spyOn(dotLottie, 'setBackgroundColor');
+
+    expect(dotLottie.backgroundColor).toBe('');
+
+    rerender({ backgroundcolor: '#ff00ff' });
+
+    expect(setBackgroundColor).toHaveBeenCalledTimes(1);
+    expect(setBackgroundColor).toHaveBeenCalledWith('#ff00ff');
+
+    await vi.waitFor(() => {
+      expect(dotLottie.backgroundColor).toBe('#ff00ff');
+    });
+
+    rerender({});
+
+    expect(setBackgroundColor).toHaveBeenCalledTimes(2);
+    expect(setBackgroundColor).toHaveBeenCalledWith('');
+
+    await vi.waitFor(() => {
+      expect(dotLottie.backgroundColor).toBe('');
+    });
+  });
+
+  test('calls dotLottie.setRenderConfig when renderconfig attribute changes', async () => {
+    const { element, rerender } = render(elementName, { src });
+
+    await vi.waitFor(() => {
+      expect(element.dotLottie?.isReady).toBe(true);
+    });
+
+    const dotLottie = element.dotLottie as DotLottie | DotLottieWorker;
+
+    const setRenderConfig = vi.spyOn(dotLottie, 'setRenderConfig');
+
+    const originalRenderConfig = dotLottie.renderConfig;
+
+    rerender({ renderconfig: JSON.stringify({ devicePixelRatio: 0.5 }) });
+
+    expect(setRenderConfig).toHaveBeenCalledTimes(1);
+    expect(setRenderConfig).toHaveBeenCalledWith({ devicePixelRatio: 0.5 });
+
+    await vi.waitFor(() => {
+      expect(dotLottie.renderConfig).toHaveProperty('devicePixelRatio', 0.5);
+    });
+
+    rerender({});
+
+    expect(setRenderConfig).toHaveBeenCalledTimes(2);
+    expect(setRenderConfig).toHaveBeenCalledWith({});
+
+    // falls back to default values
+    await vi.waitFor(() => {
+      expect(dotLottie.renderConfig).toEqual(originalRenderConfig);
+    });
+  });
+
+  test('calls dotLottie.loadAnimation when animationid attribute changes', async () => {
+    const { element, rerender } = render(elementName, {
+      // eslint-disable-next-line no-secrets/no-secrets
+      src: 'https://lottie.host/294b684d-d6b4-4116-ab35-85ef566d4379/VkGHcqcMUI.lottie',
+    });
+
+    const dotLottie = element.dotLottie as DotLottie | DotLottieWorker;
+
+    const onLoad = vi.fn();
+
+    dotLottie.addEventListener('load', onLoad);
+
+    await vi.waitFor(
+      () => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      },
+      { timeout: 10000 },
+    );
+
+    const animationId = dotLottie.manifest?.animations[1]?.id;
+
+    expect(animationId).toBeDefined();
+
+    const loadAnimation = vi.spyOn(dotLottie, 'loadAnimation');
+
+    rerender({ animationid: animationId as string });
+
+    expect(loadAnimation).toHaveBeenCalledTimes(1);
+    expect(loadAnimation).toHaveBeenCalledWith(animationId);
+
+    await vi.waitFor(() => {
+      expect(onLoad).toHaveBeenCalledTimes(2);
+    });
+
+    await vi.waitFor(() => {
+      expect(element.dotLottie?.activeAnimationId).toBe(animationId);
+    });
+
+    loadAnimation.mockClear();
+
+    rerender({ animationid: '' });
+
+    expect(loadAnimation).not.toHaveBeenCalled();
+  });
+
+  test('dotLottie instance is recreated when component is moved to a new DOM node', async () => {
+    const { element } = render(elementName, { src });
+
+    const dotLottie = element.dotLottie as DotLottie | DotLottieWorker;
+    const destroy = vi.spyOn(dotLottie, 'destroy');
+
+    expect(element.dotLottie).toBe(dotLottie);
+
+    const div = document.createElement('div');
+
+    // move the component to a new DOM node
+    div.appendChild(element);
+    document.body.appendChild(div);
+
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(element.dotLottie).not.toBe(dotLottie);
+  });
+
+  test('dotLottie instance is recreated when component is adopted to a new document', async () => {
+    const { element } = render(elementName, { src });
+
+    const dotLottie = element.dotLottie as DotLottie | DotLottieWorker;
+    const destroy = vi.spyOn(dotLottie, 'destroy');
+
+    expect(element.dotLottie).toBe(dotLottie);
+
+    const iframe = document.createElement('iframe');
+
+    // move the component to a new document
+    document.body.appendChild(iframe);
+    iframe.contentDocument?.body.appendChild(element);
+
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(element.dotLottie).not.toBe(dotLottie);
+  });
+
+  test('calls stateMachineLoad and stateMachineStart when statemachineid attribute changes', async () => {
+    const { element, rerender } = render(elementName, { src: smSrc });
+
+    const dotLottie = element.dotLottie as DotLottie | DotLottieWorker;
+
+    await vi.waitFor(() => {
+      expect(dotLottie.isLoaded).toBe(true);
+    });
+
+    const stateMachineLoad = vi.spyOn(dotLottie, 'stateMachineLoad').mockReturnValue(true);
+    const stateMachineStart = vi.spyOn(dotLottie, 'stateMachineStart');
+    const stateMachineStop = vi.spyOn(dotLottie, 'stateMachineStop');
+
+    rerender({ src: smSrc, statemachineid: 'testSM' });
+
+    expect(stateMachineLoad).toHaveBeenCalledTimes(1);
+    expect(stateMachineLoad).toHaveBeenCalledWith('testSM');
+    expect(stateMachineStart).toHaveBeenCalledTimes(1);
+
+    rerender({ src: smSrc });
+
+    expect(stateMachineStop).toHaveBeenCalledTimes(1);
+  });
+
+  test('calls stateMachineSetConfig when statemachineconfig attribute changes', async () => {
+    const { element, rerender } = render(elementName, { src: smSrc });
+
+    const dotLottie = element.dotLottie as DotLottie | DotLottieWorker;
+
+    await vi.waitFor(() => {
+      expect(dotLottie.isLoaded).toBe(true);
+    });
+
+    const stateMachineSetConfig = vi.spyOn(dotLottie, 'stateMachineSetConfig');
+
+    const config = { openUrlPolicy: { whitelist: ['*'] } };
+
+    rerender({ src: smSrc, statemachineconfig: JSON.stringify(config) });
+
+    expect(stateMachineSetConfig).toHaveBeenCalledTimes(1);
+    expect(stateMachineSetConfig).toHaveBeenCalledWith(config);
+  });
+});

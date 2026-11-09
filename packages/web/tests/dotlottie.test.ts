@@ -1,0 +1,3368 @@
+/* eslint-disable no-warning-comments */
+/* eslint-disable node/no-unsupported-features/node-builtins */
+/* eslint-disable require-atomic-updates */
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
+
+import type { AssetResolver, Config, Layout, Mode } from '../src';
+import { DotLottie as DotLottieClass, DotLottieWorker as DotLottieWorkerClass } from '../src';
+import { BYTES_PER_PIXEL } from '../src/constants';
+import type { DotLottiePlayerWasm as DotLottiePlayer } from '../src/core';
+import { getDefaultDPR } from '../src/utils';
+
+import { addWasmCSPPolicy, createCanvas, sleep } from './test-utils';
+
+const wasmUrl = new URL('../src/core/dotlottie-player.wasm', import.meta.url).href;
+const jsonSrc = new URL('../../../fixtures/test.json', import.meta.url).href;
+const src = new URL('../../../fixtures/test.lottie', import.meta.url).href;
+const smSrc = new URL('../../../fixtures/sm/all-inputs.json', import.meta.url).href;
+const textAnimSrc = new URL('../../../fixtures/text.json', import.meta.url).href;
+const imageSlotSrc = new URL('../../../fixtures/image.json', import.meta.url).href;
+const impactFontUrl = new URL('../../../fixtures/fonts/Impact.ttf', import.meta.url).href;
+const audioSrc = new URL('../../../fixtures/audio.json', import.meta.url).href;
+
+DotLottieClass.setWasmUrl(wasmUrl);
+DotLottieWorkerClass.setWasmUrl(wasmUrl);
+
+let cleanupWasmCSPPolicy: () => void;
+
+beforeAll(() => {
+  cleanupWasmCSPPolicy = addWasmCSPPolicy();
+});
+
+afterAll(() => {
+  cleanupWasmCSPPolicy();
+});
+
+describe.each([
+  {
+    DotLottie: DotLottieClass,
+    name: 'DotLottie',
+  },
+  {
+    DotLottie: DotLottieWorkerClass,
+    name: 'DotLottieWorker',
+  },
+])('$DotLottie.name', ({ DotLottie }) => {
+  let canvas: HTMLCanvasElement;
+  let dotLottie: DotLottieClass | DotLottieWorkerClass;
+  const isWorker = DotLottie === DotLottieWorkerClass;
+
+  type Option = Omit<Omit<Config, 'canvas'>, 'src'>;
+
+  beforeEach(() => {
+    canvas = createCanvas();
+  });
+
+  afterEach(() => {
+    dotLottie.destroy();
+    canvas.remove();
+  });
+
+  describe('play', () => {
+    test('triggers loop event correctly', async () => {
+      const onLoad = vi.fn();
+      const onLoop = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+        loop: true,
+        autoplay: true,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+      dotLottie.addEventListener('loop', onLoop);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      const loopCount = 4;
+
+      await vi.waitFor(
+        () => {
+          expect(onLoop).toHaveBeenCalledTimes(loopCount);
+        },
+        { timeout: (dotLottie.duration * 1000 + 500) * loopCount },
+      );
+
+      expect(dotLottie.loopCount).toBe(loopCount);
+
+      for (let i = 1; i <= loopCount; i += 1) {
+        expect(onLoop).toHaveBeenNthCalledWith(i, {
+          type: 'loop',
+          loopCount: i,
+        });
+      }
+    });
+    test('unfreeze the animation on play()', async () => {
+      const onLoad = vi.fn();
+      const onPlay = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+        autoplay: true,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+      dotLottie.addEventListener('play', onPlay);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+        expect(onPlay).toHaveBeenCalledTimes(1);
+      });
+
+      expect(dotLottie.isFrozen).toBe(false);
+
+      const currentFrameBeforeFreeze = dotLottie.currentFrame;
+
+      await dotLottie.freeze();
+
+      expect(dotLottie.isFrozen).toBe(true);
+
+      await sleep(500);
+
+      // Worker may process one more animation tick before freeze takes effect
+      expect(Math.abs(dotLottie.currentFrame - currentFrameBeforeFreeze)).toBeLessThan(1);
+
+      await dotLottie.play();
+
+      expect(dotLottie.isPlaying).toBe(true);
+      expect(dotLottie.isFrozen).toBe(false);
+    });
+
+    test('does not play when not loaded', async () => {
+      const onLoad = vi.fn();
+      const onPlay = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+      dotLottie.addEventListener('play', onPlay);
+
+      expect(onLoad).not.toHaveBeenCalled();
+
+      await dotLottie.play();
+
+      expect(onPlay).not.toHaveBeenCalled();
+    });
+
+    test('play() does nothing when already playing', async () => {
+      const onLoad = vi.fn();
+      const onPlay = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+        autoplay: true,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+      dotLottie.addEventListener('play', onPlay);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+        expect(onPlay).toHaveBeenCalledTimes(1);
+      });
+
+      onPlay.mockClear();
+
+      await dotLottie.play();
+
+      await sleep(100);
+
+      expect(onPlay).not.toHaveBeenCalled();
+    });
+
+    describe.each<Option>([
+      {
+        mode: 'forward',
+      },
+      {
+        mode: 'reverse',
+      },
+      {
+        mode: 'reverse-bounce',
+      },
+      {
+        mode: 'bounce',
+      },
+      {
+        mode: 'bounce',
+        segment: [10, 30],
+        speed: 2,
+      },
+      {
+        mode: 'reverse-bounce',
+        segment: [5, 25],
+        speed: 2,
+      },
+      {
+        mode: 'reverse',
+        segment: [1, 5],
+        speed: 0.5,
+      },
+      {
+        mode: 'forward',
+        segment: [0, 10],
+        speed: 0.5,
+      },
+    ])('config: %s', (config) => {
+      test('on play()', async () => {
+        const onLoad = vi.fn();
+        const onPlay = vi.fn();
+        const onCompelete = vi.fn();
+        const onFrame = vi.fn();
+
+        dotLottie = new DotLottie({
+          ...config,
+          canvas,
+          src,
+        });
+
+        let playTime = 0;
+        let completeTime = 0;
+
+        dotLottie.addEventListener('play', () => (playTime = Date.now()));
+        dotLottie.addEventListener('complete', () => (completeTime = Date.now()));
+
+        dotLottie.addEventListener('load', onLoad);
+        dotLottie.addEventListener('play', onPlay);
+        dotLottie.addEventListener('complete', onCompelete);
+        dotLottie.addEventListener('frame', onFrame);
+
+        await vi.waitFor(() => {
+          expect(onLoad).toHaveBeenCalledTimes(1);
+        });
+
+        const segmentFrames = (dotLottie.segment?.[1] ?? dotLottie.totalFrames) - (dotLottie.segment?.[0] ?? 0);
+        const segmentDuration =
+          dotLottie.totalFrames > 0 ? dotLottie.duration * (segmentFrames / dotLottie.totalFrames) : 0;
+        const expectedDuration = ((config.mode?.includes('bounce') ? 2 : 1) * segmentDuration * 1000) / dotLottie.speed;
+
+        const expectedEndFrame =
+          config.mode === 'reverse' || config.mode === 'reverse-bounce'
+            ? (config.segment?.[0] ?? 0)
+            : (config.segment?.[1] ?? dotLottie.totalFrames - 1);
+        const expectedStartFrame =
+          config.mode === 'reverse' || config.mode === 'reverse-bounce'
+            ? (config.segment?.[1] ?? dotLottie.totalFrames - 1)
+            : (config.segment?.[0] ?? 0);
+
+        const startFrame =
+          config.mode === 'reverse' || config.mode === 'reverse-bounce'
+            ? (dotLottie.segment?.[1] ?? dotLottie.totalFrames - 1)
+            : (dotLottie.segment?.[0] ?? 0);
+        const endFrame =
+          config.mode === 'reverse' || config.mode === 'reverse-bounce'
+            ? (dotLottie.segment?.[0] ?? 0)
+            : (dotLottie.segment?.[1] ?? dotLottie.totalFrames - 1);
+
+        expect(startFrame).toBe(expectedStartFrame);
+        expect(endFrame).toBe(expectedEndFrame);
+
+        expect(dotLottie.isLoaded).toBe(true);
+
+        await vi.waitFor(() => {
+          expect(onLoad).toHaveBeenCalledTimes(1);
+          expect(onPlay).not.toHaveBeenCalled();
+        });
+
+        expect(onCompelete).not.toHaveBeenCalled();
+
+        await dotLottie.play();
+
+        await vi.waitFor(() => {
+          expect(onPlay).toHaveBeenCalledTimes(1);
+        });
+
+        expect(onFrame).toHaveBeenNthCalledWith(
+          1,
+          expect.objectContaining({
+            type: 'frame',
+            currentFrame: expect.closeTo(expectedStartFrame, 0),
+          }),
+        );
+
+        await vi.waitFor(
+          () => {
+            expect(onCompelete).toHaveBeenCalledTimes(1);
+          },
+          {
+            timeout: expectedDuration + 250,
+          },
+        );
+
+        expect(onFrame).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            type: 'frame',
+            currentFrame: expect.closeTo(config.mode?.includes('bounce') ? expectedStartFrame : expectedEndFrame, 0),
+          }),
+        );
+
+        const actualDuration = completeTime - playTime;
+
+        const durationAccuracy = expectedDuration / actualDuration;
+
+        expect(durationAccuracy).toBeGreaterThan(0.85);
+      });
+
+      test('autoplay animation', async () => {
+        const onLoad = vi.fn();
+        const onPlay = vi.fn();
+        const onCompelete = vi.fn();
+        const onFrame = vi.fn();
+
+        dotLottie = new DotLottie({
+          canvas,
+          src,
+          autoplay: true,
+          ...config,
+        });
+
+        let playTime = 0;
+        let completeTime = 0;
+
+        dotLottie.addEventListener('play', () => (playTime = Date.now()));
+        dotLottie.addEventListener('complete', () => (completeTime = Date.now()));
+
+        dotLottie.addEventListener('load', onLoad);
+        dotLottie.addEventListener('play', onPlay);
+        dotLottie.addEventListener('complete', onCompelete);
+        dotLottie.addEventListener('frame', onFrame);
+
+        await vi.waitFor(() => {
+          expect(onLoad).toHaveBeenCalledTimes(1);
+        });
+
+        const totalFrames = (config.segment?.[1] ?? dotLottie.totalFrames) - (config.segment?.[0] ?? 0);
+
+        const expectedDuration =
+          ((config.mode?.includes('bounce') ? 2 : 1) *
+            ((dotLottie.duration * totalFrames) / dotLottie.totalFrames) *
+            1000) /
+          dotLottie.speed;
+
+        const expectedEndFrame =
+          config.mode === 'reverse' || config.mode === 'reverse-bounce'
+            ? (config.segment?.[0] ?? 0)
+            : (config.segment?.[1] ?? dotLottie.totalFrames - 1);
+        const expectedStartFrame =
+          config.mode === 'reverse' || config.mode === 'reverse-bounce'
+            ? (config.segment?.[1] ?? dotLottie.totalFrames - 1)
+            : (config.segment?.[0] ?? 0);
+
+        const startFrame =
+          config.mode === 'reverse' || config.mode === 'reverse-bounce'
+            ? (dotLottie.segment?.[1] ?? dotLottie.totalFrames - 1)
+            : (dotLottie.segment?.[0] ?? 0);
+        const endFrame =
+          config.mode === 'reverse' || config.mode === 'reverse-bounce'
+            ? (dotLottie.segment?.[0] ?? 0)
+            : (dotLottie.segment?.[1] ?? dotLottie.totalFrames - 1);
+
+        expect(startFrame).toBe(expectedStartFrame);
+        expect(endFrame).toBe(expectedEndFrame);
+
+        expect(dotLottie.isLoaded).toBe(true);
+
+        await vi.waitFor(() => {
+          expect(onPlay).toHaveBeenCalledTimes(1);
+        });
+
+        expect(onCompelete).not.toHaveBeenCalled();
+
+        expect(onFrame).toHaveBeenNthCalledWith(
+          1,
+          expect.objectContaining({
+            type: 'frame',
+            currentFrame: expect.closeTo(expectedStartFrame, 0),
+          }),
+        );
+
+        await vi.waitFor(
+          () => {
+            expect(onCompelete).toHaveBeenCalledTimes(1);
+          },
+          {
+            timeout: expectedDuration + 250,
+          },
+        );
+
+        expect(onFrame).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            type: 'frame',
+            currentFrame: expect.closeTo(config.mode?.includes('bounce') ? expectedStartFrame : expectedEndFrame, 0),
+          }),
+        );
+
+        const actualDuration = completeTime - playTime;
+
+        const durationAccuracy = expectedDuration / actualDuration;
+
+        expect(durationAccuracy).toBeGreaterThan(0.85);
+      });
+
+      (isWorker ? test.skip : test)('play() after pause()', async () => {
+        const onLoad = vi.fn();
+        const onPlay = vi.fn();
+        const onCompelete = vi.fn();
+        const onPause = vi.fn();
+
+        dotLottie = new DotLottie({
+          canvas,
+          src,
+          autoplay: true,
+          ...config,
+        });
+
+        let playTime = 0;
+        let completeTime = 0;
+        let pauseTime = 0;
+        let resumeTime = 0;
+
+        dotLottie.addEventListener('play', () => {
+          if (playTime === 0) {
+            playTime = Date.now();
+          } else {
+            resumeTime = Date.now();
+          }
+        });
+        dotLottie.addEventListener('complete', () => (completeTime = Date.now()));
+        dotLottie.addEventListener('pause', () => (pauseTime = Date.now()));
+
+        dotLottie.addEventListener('load', onLoad);
+        dotLottie.addEventListener('play', onPlay);
+        dotLottie.addEventListener('pause', onPause);
+        dotLottie.addEventListener('complete', onCompelete);
+
+        await vi.waitFor(() => {
+          expect(onLoad).toHaveBeenCalledTimes(1);
+        });
+
+        const totalFrames = (config.segment?.[1] ?? dotLottie.totalFrames) - (config.segment?.[0] ?? 0);
+
+        const expectedDuration =
+          ((config.mode?.includes('bounce') ? 2 : 1) *
+            ((dotLottie.duration * totalFrames) / dotLottie.totalFrames) *
+            1000) /
+          dotLottie.speed;
+
+        await vi.waitFor(() => {
+          expect(onPlay).toHaveBeenCalledTimes(1);
+        });
+
+        // wait until the animation is 20% complete
+        await vi.waitUntil(() => {
+          if (dotLottie.mode.includes('reverse')) {
+            return dotLottie.currentFrame <= totalFrames * 0.8;
+          } else {
+            return dotLottie.currentFrame >= totalFrames * 0.2;
+          }
+        });
+        const currentFrameBeforePause = dotLottie.currentFrame;
+
+        await dotLottie.pause();
+
+        await sleep(1000);
+
+        expect(onPause).toHaveBeenCalledTimes(1);
+
+        expect(dotLottie.currentFrame).toBeCloseTo(currentFrameBeforePause);
+
+        await dotLottie.play();
+
+        await vi.waitFor(() => {
+          expect(onPlay).toHaveBeenCalledTimes(2);
+        });
+
+        await vi.waitFor(
+          () => {
+            expect(onCompelete).toHaveBeenCalledTimes(1);
+          },
+          {
+            timeout: expectedDuration + 250,
+          },
+        );
+
+        const actualDuration = pauseTime - playTime + (completeTime - resumeTime);
+
+        const durationAccuracy = expectedDuration / actualDuration;
+
+        expect(durationAccuracy).toBeGreaterThan(0.85);
+      });
+
+      test('frame rate accuracy with frame interpolation disabled', async () => {
+        const onFrame = vi.fn();
+        const onCompleted = vi.fn();
+        const onPlay = vi.fn();
+
+        dotLottie = new DotLottie({
+          ...config,
+          canvas,
+          src,
+          autoplay: true,
+          useFrameInterpolation: false,
+        });
+
+        dotLottie.addEventListener('play', onPlay);
+        dotLottie.addEventListener('frame', onFrame);
+        dotLottie.addEventListener('complete', onCompleted);
+
+        await vi.waitFor(() => expect(onPlay).toHaveBeenCalledTimes(1));
+
+        await vi.waitFor(() => expect(onCompleted).toHaveBeenCalledTimes(1), {
+          timeout: dotLottie.duration * 1000 * 2,
+        });
+
+        const startFrame = dotLottie.mode.includes('reverse')
+          ? (dotLottie.segment?.[1] ?? dotLottie.totalFrames - 1)
+          : (dotLottie.segment?.[0] ?? 0);
+        const endFrame = dotLottie.mode.includes('reverse')
+          ? (dotLottie.segment?.[0] ?? 0)
+          : (dotLottie.segment?.[1] ?? dotLottie.totalFrames - 1);
+        const totalFrames = (config.segment?.[1] ?? dotLottie.totalFrames - 1) - (config.segment?.[0] ?? 0);
+
+        expect(onFrame).toHaveBeenNthCalledWith(1, {
+          type: 'frame',
+          currentFrame: startFrame,
+        });
+        expect(onFrame).toHaveBeenLastCalledWith({
+          type: 'frame',
+          currentFrame: dotLottie.mode.includes('bounce') ? startFrame : endFrame,
+        });
+
+        const expectedFrameCount = totalFrames * (dotLottie.mode.includes('bounce') ? 2 : 1) + 1;
+
+        // Allow ±5 frame tolerance for timing-sensitive browser tests
+        expect(onFrame.mock.calls.length).toBeGreaterThanOrEqual(expectedFrameCount - 5);
+        expect(onFrame.mock.calls.length).toBeLessThanOrEqual(expectedFrameCount + 5);
+      });
+    });
+  });
+
+  describe('pause', () => {
+    test('does not pause if it is not playing', async () => {
+      const onLoad = vi.fn();
+      const onPause = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+      dotLottie.addEventListener('pause', onPause);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      await dotLottie.pause();
+
+      expect(onPause).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('destroy', () => {
+    test('destroy() clears all event listeners', async () => {
+      const onPlay = vi.fn();
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+        autoplay: true,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+      dotLottie.addEventListener('play', onPlay);
+
+      await vi.waitFor(() => expect(onPlay).toHaveBeenCalledTimes(1));
+
+      await dotLottie.destroy();
+
+      await dotLottie.play();
+
+      expect(onPlay).toHaveBeenCalledTimes(1);
+      expect(onLoad).toHaveBeenCalledTimes(1);
+    });
+
+    (isWorker ? test.skip : test)('destroy() is idempotent when free() throws', async () => {
+      const onReady = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+      });
+
+      dotLottie.addEventListener('ready', onReady);
+
+      await vi.waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+
+      const dotLottieCore = (dotLottie as DotLottieClass as any)._dotLottieCore as DotLottiePlayer;
+      const freeSpy = vi.spyOn(dotLottieCore, 'free').mockImplementation(() => {
+        throw new Error('null pointer passed to rust');
+      });
+
+      expect(() => dotLottie.destroy()).not.toThrow();
+      expect(freeSpy).toHaveBeenCalledTimes(1);
+
+      expect(() => dotLottie.destroy()).not.toThrow();
+      expect(freeSpy).toHaveBeenCalledTimes(1);
+      expect((dotLottie as DotLottieClass as any)._dotLottieCore).toBeNull();
+    });
+  });
+
+  (isWorker ? test.skip : test)('trigger renderError event when failed to render', async () => {
+    const fakeWebAssemblyRuntimeError = new WebAssembly.RuntimeError('memory access out of bounds');
+    const consoleErrorSpy = vi.spyOn(console, 'error');
+
+    const onReady = vi.fn();
+    const onRenderError = vi.fn();
+    const onDestroy = vi.fn();
+
+    dotLottie = new DotLottie({
+      canvas,
+      src: jsonSrc,
+      autoplay: true,
+    });
+
+    dotLottie.addEventListener('destroy', onDestroy);
+    dotLottie.addEventListener('renderError', onRenderError);
+    dotLottie.addEventListener('ready', onReady);
+
+    await vi.waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+
+    const dotLottieCore = (dotLottie as DotLottieClass as any)._dotLottieCore as DotLottiePlayer;
+
+    vi.spyOn(dotLottieCore, 'tick').mockImplementationOnce(() => {
+      throw fakeWebAssemblyRuntimeError;
+    });
+
+    await vi.waitFor(() => {
+      expect(onRenderError).toHaveBeenCalledTimes(1);
+      expect(onRenderError).toHaveBeenCalledWith({
+        type: 'renderError',
+        error: fakeWebAssemblyRuntimeError,
+      });
+    });
+
+    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+    expect(consoleErrorSpy).toHaveBeenCalledWith('Error in animation frame:', fakeWebAssemblyRuntimeError);
+
+    expect(onDestroy).toHaveBeenCalledTimes(1);
+  });
+
+  (isWorker ? test.skip : test)('exits early on buffer size mismatch without rendering', async () => {
+    const onReady = vi.fn();
+    const onRender = vi.fn();
+
+    dotLottie = new DotLottie({
+      canvas,
+      src: jsonSrc,
+      autoplay: true,
+    });
+
+    dotLottie.addEventListener('ready', onReady);
+    dotLottie.addEventListener('render', onRender);
+
+    await vi.waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+
+    const dotLottieCore = (dotLottie as DotLottieClass as any)._dotLottieCore as DotLottiePlayer;
+
+    vi.spyOn(dotLottieCore, 'render').mockReturnValue(true);
+
+    const wrongSizeBuffer = new Uint8Array(10);
+
+    vi.spyOn(dotLottieCore, 'get_pixel_buffer').mockReturnValue(wrongSizeBuffer);
+
+    onRender.mockClear();
+
+    await dotLottie.setFrame(1);
+
+    expect(onRender).not.toHaveBeenCalled();
+  });
+
+  test('animationSize() returns the animation dimensions', async () => {
+    const onLoad = vi.fn();
+
+    dotLottie = new DotLottie({
+      canvas,
+      src,
+    });
+
+    dotLottie.addEventListener('load', onLoad);
+
+    await vi.waitFor(() => {
+      expect(onLoad).toHaveBeenCalledTimes(1);
+    });
+
+    const size = await dotLottie.animationSize();
+
+    expect(size.width).toBeGreaterThan(0);
+    expect(size.height).toBeGreaterThan(0);
+  });
+
+  describe('resize', () => {
+    test('resize the canvas drawing surface to maintain high quality animation', async () => {
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+        autoplay: true,
+      });
+
+      await vi.waitFor(() => expect(dotLottie.isPlaying).toBe(true));
+
+      const originalCanvasWidth =
+        canvas.getBoundingClientRect().width * (dotLottie.renderConfig.devicePixelRatio || window.devicePixelRatio);
+      const originalCanvasHeight =
+        canvas.getBoundingClientRect().height * (dotLottie.renderConfig.devicePixelRatio || window.devicePixelRatio);
+
+      expect(canvas.width).toBe(originalCanvasWidth);
+      expect(canvas.height).toBe(originalCanvasHeight);
+
+      // double the size of the canvas
+      canvas.style.width = `${2 * canvas.getBoundingClientRect().width}px`;
+      canvas.style.height = `${2 * canvas.getBoundingClientRect().height}px`;
+
+      expect(canvas.width).toBe(originalCanvasWidth);
+      expect(canvas.height).toBe(originalCanvasHeight);
+
+      await dotLottie.resize();
+
+      await vi.waitFor(() => {
+        expect(canvas.width).toBe(2 * originalCanvasWidth);
+        expect(canvas.height).toBe(2 * originalCanvasHeight);
+      });
+    });
+
+    (isWorker ? test.skip : test)('should not warn for transient buffer mismatches during resize', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn');
+      const onReady = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+        autoplay: true,
+      });
+
+      dotLottie.addEventListener('ready', onReady);
+
+      await vi.waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+
+      const dotLottieCore = (dotLottie as DotLottieClass as any)._dotLottieCore as DotLottiePlayer;
+
+      const originalBuffer = dotLottieCore.get_pixel_buffer.bind(dotLottieCore);
+
+      const initialWidth = canvas.width;
+      const initialHeight = canvas.height;
+      const initialBufferSize = initialWidth * initialHeight * BYTES_PER_PIXEL;
+
+      const oldBuffer = new Uint8Array(initialBufferSize);
+
+      let resizeCallCount = 0;
+
+      vi.spyOn(dotLottieCore, 'setup_sw_target').mockImplementation(() => {
+        resizeCallCount += 1;
+
+        return true;
+      });
+
+      let drawCallCount = 0;
+
+      vi.spyOn(dotLottieCore, 'get_pixel_buffer').mockImplementation(() => {
+        drawCallCount += 1;
+        if (resizeCallCount > 0 && drawCallCount < 10) {
+          return oldBuffer;
+        }
+
+        return originalBuffer();
+      });
+
+      canvas.style.width = '400px';
+      canvas.style.height = '400px';
+
+      dotLottie.resize();
+
+      await sleep(200);
+
+      const bufferWarnings = consoleWarnSpy.mock.calls.filter((call) =>
+        String(call[0]).includes('buffer size mismatch'),
+      );
+
+      expect(bufferWarnings.length).toBeLessThanOrEqual(1);
+
+      consoleWarnSpy.mockRestore();
+    });
+  });
+
+  describe('load', () => {
+    // preload() exists on the main-thread player only
+    (isWorker ? test.skip : test)('preload() warms the wasm module before construction', async () => {
+      await expect(DotLottieClass.preload()).resolves.toBeUndefined();
+
+      const onReady = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+      });
+      dotLottie.addEventListener('ready', onReady);
+
+      await vi.waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+    });
+
+    // Skip this test in worker environment because it's not possible to mock the fetch error in worker environment
+    (isWorker ? test.skip : test)('loads animation from a valid source', async () => {
+      const fetch = vi.spyOn(window, 'fetch');
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+      });
+
+      const onLoad = vi.fn();
+      const onReady = vi.fn();
+
+      dotLottie.addEventListener('ready', onReady);
+      dotLottie.addEventListener('load', onLoad);
+
+      expect(dotLottie.isReady).toBe(false);
+      expect(dotLottie.isLoaded).toBe(false);
+
+      await vi.waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+
+      expect(dotLottie.isReady).toBe(true);
+      expect(dotLottie.isLoaded).toBe(true);
+      expect(dotLottie.isPlaying).toBe(false);
+      expect(dotLottie.isStopped).toBe(true);
+      expect(dotLottie.totalFrames).toBeGreaterThan(0);
+
+      expect(fetch).toHaveBeenCalledTimes(1);
+
+      expect(fetch).toHaveBeenNthCalledWith(1, src, { signal: expect.any(AbortSignal) });
+    });
+
+    // Skip in worker environment: the worker fetches in its own thread, away from this spy
+    (isWorker ? test.skip : test)('aborts the src prefetch on destroy()', () => {
+      const fetch = vi.spyOn(window, 'fetch');
+
+      fetch.mockClear();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+      });
+
+      const signal = (fetch.mock.calls[0]?.[1] as RequestInit | undefined)?.signal;
+
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(signal?.aborted).toBe(false);
+
+      dotLottie.destroy();
+
+      expect(signal?.aborted).toBe(true);
+    });
+
+    test('loads lottie json file', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      expect(dotLottie.isLoaded).toBe(false);
+
+      await vi.waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1));
+
+      expect(dotLottie.isLoaded).toBe(true);
+      expect(dotLottie.isPlaying).toBe(false);
+      expect(dotLottie.isStopped).toBe(true);
+      expect(dotLottie.totalFrames).toBeGreaterThan(0);
+    });
+
+    test('dispatches loadError on invalid source', async () => {
+      const invalidSrc = 'https://example.com/invalid.lottie';
+
+      const onLoadError = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: invalidSrc,
+      });
+
+      dotLottie.addEventListener('loadError', onLoadError);
+
+      await vi.waitFor(
+        () => {
+          expect(onLoadError).toHaveBeenCalledTimes(1);
+        },
+        { timeout: 2000 },
+      );
+
+      expect(dotLottie.isLoaded).toBe(false);
+    });
+
+    test('loads .lottie animation from animation data as array buffer', async () => {
+      const res = await fetch(src);
+      const data = await res.arrayBuffer();
+
+      dotLottie = new DotLottie({
+        canvas,
+        data,
+      });
+
+      const onLoad = vi.fn();
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1));
+
+      expect(dotLottie.isPlaying).toBe(false);
+      expect(dotLottie.isStopped).toBe(true);
+      expect(dotLottie.totalFrames).toBeGreaterThan(0);
+    });
+
+    test('loads lottie json file from animation data as string', async () => {
+      const res = await fetch(jsonSrc);
+      const data = await res.text();
+
+      dotLottie = new DotLottie({
+        canvas,
+        data,
+      });
+
+      const onLoad = vi.fn();
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1));
+
+      expect(dotLottie.totalFrames).toBeGreaterThan(0);
+    });
+
+    test('loads lottie json file from animation data as json object', async () => {
+      const res = await fetch(jsonSrc);
+      const data = await res.json();
+
+      dotLottie = new DotLottie({
+        canvas,
+        data,
+      });
+
+      const onLoad = vi.fn();
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1));
+
+      expect(dotLottie.totalFrames).toBeGreaterThan(0);
+    });
+
+    test('loads a new animation src via load() method', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await sleep(500);
+
+      await dotLottie.load({
+        src,
+        speed: 2,
+        loop: true,
+        autoplay: true,
+        mode: 'reverse',
+        backgroundColor: '#ff00ff',
+      });
+
+      await vi.waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1));
+
+      expect(dotLottie.isPlaying).toBe(true);
+      expect(dotLottie.isStopped).toBe(false);
+      expect(dotLottie.totalFrames).toBeGreaterThan(0);
+      expect(dotLottie.duration).toBeGreaterThan(0);
+      expect(dotLottie.speed).toBe(2);
+      expect(dotLottie.loop).toBe(true);
+      expect(dotLottie.autoplay).toBe(true);
+      expect(dotLottie.mode).toBe('reverse');
+      expect(dotLottie.backgroundColor).toBe('#ff00ff');
+    });
+
+    test('loads a new animation data via load() method', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      const response = await fetch(src);
+      const data = await response.arrayBuffer();
+
+      await sleep(500);
+
+      await dotLottie.load({
+        speed: 2,
+        loop: true,
+        autoplay: true,
+        mode: 'reverse',
+        backgroundColor: '#000000',
+        data,
+      });
+
+      await vi.waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1));
+
+      expect(dotLottie.isPlaying).toBe(true);
+      expect(dotLottie.isStopped).toBe(false);
+      expect(dotLottie.totalFrames).toBeGreaterThan(0);
+      expect(dotLottie.duration).toBeGreaterThan(0);
+      expect(dotLottie.speed).toBe(2);
+      expect(dotLottie.loop).toBe(true);
+      expect(dotLottie.autoplay).toBe(true);
+      expect(dotLottie.mode).toBe('reverse');
+      expect(dotLottie.backgroundColor).toBe('#000000');
+      expect(dotLottie.useFrameInterpolation).toBe(true);
+    });
+
+    test('emit loadError event when loading invalid lottie animation data', async () => {
+      const onLoadError = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        data: 'not a lottie animation',
+      });
+
+      dotLottie.addEventListener('loadError', onLoadError);
+
+      expect(dotLottie.isLoaded).toBe(false);
+
+      await vi.waitFor(() => expect(onLoadError).toHaveBeenCalledTimes(1));
+
+      expect(onLoadError).toHaveBeenCalledWith({
+        type: 'loadError',
+        error: new Error('Invalid Lottie JSON string: The provided string does not conform to the Lottie JSON format.'),
+      });
+
+      expect(dotLottie.isLoaded).toBe(false);
+    });
+
+    test('emit loadError event when loading valid JSON that is not a lottie animation', async () => {
+      const onLoadError = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        data: JSON.stringify({}),
+      });
+
+      dotLottie.addEventListener('loadError', onLoadError);
+
+      expect(dotLottie.isLoaded).toBe(false);
+
+      await vi.waitFor(() => expect(onLoadError).toHaveBeenCalledTimes(1));
+
+      expect(dotLottie.isLoaded).toBe(false);
+    });
+
+    test('emit loadError when loading invalid dotLottie animation data', async () => {
+      const onLoadError = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        data: new ArrayBuffer(0),
+      });
+
+      dotLottie.addEventListener('loadError', onLoadError);
+
+      expect(dotLottie.isLoaded).toBe(false);
+
+      await vi.waitFor(() => expect(onLoadError).toHaveBeenCalledTimes(1));
+
+      expect(onLoadError).toHaveBeenCalledWith({
+        type: 'loadError',
+        error: new Error(
+          'Invalid dotLottie ArrayBuffer: The provided ArrayBuffer does not conform to the dotLottie format.',
+        ),
+      });
+
+      expect(dotLottie.isLoaded).toBe(false);
+    });
+
+    test('log error when loading invalid animation data of invalid type', async () => {
+      const onLoadError = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        data: 1 as unknown as string,
+      });
+
+      dotLottie.addEventListener('loadError', onLoadError);
+
+      await vi.waitFor(() => expect(onLoadError).toHaveBeenCalledTimes(1));
+
+      expect(onLoadError).toHaveBeenCalledWith({
+        type: 'loadError',
+        error: new Error(`Unsupported data type for animation data. Expected:
+          - string (Lottie JSON),
+          - ArrayBuffer (dotLottie),
+          - object (Lottie JSON).
+          Received: number`),
+      });
+    });
+
+    // Skip this test in worker environment because it's not possible to mock the fetch error in worker environment
+    (isWorker ? test.skip : test)('emit loadError when fail to load wasm', async () => {
+      const fetch = vi.spyOn(window, 'fetch');
+
+      fetch.mockRejectedValueOnce(new Error('Failed to fetch'));
+
+      const onLoadError = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+      });
+
+      dotLottie.addEventListener('loadError', onLoadError);
+
+      expect(dotLottie.isLoaded).toBe(false);
+
+      await vi.waitFor(() => expect(onLoadError).toHaveBeenCalledTimes(1));
+
+      expect(dotLottie.isLoaded).toBe(false);
+
+      expect(fetch).toHaveBeenCalled();
+
+      fetch.mockRestore();
+    });
+  });
+
+  describe('assetResolver', () => {
+    // 16x16 solid red PNG
+    const RED_PNG_BASE64 =
+      'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR42mP4z8DwnxLMMGrAqAGjBgwXAwAwxP4QisZM5QAAAABJRU5ErkJggg==';
+
+    const redPng = (): Uint8Array => Uint8Array.from(atob(RED_PNG_BASE64), (char) => char.charCodeAt(0));
+
+    // A raw JSON animation whose only layer references a non-embedded (`e: 0`) image,
+    // so the resolver is the only way those bytes can arrive.
+    const externalAssetAnimation = JSON.stringify({
+      v: '5.7.4',
+      fr: 30,
+      ip: 0,
+      op: 30,
+      w: 100,
+      h: 100,
+      assets: [{ id: 'img0', w: 16, h: 16, u: 'images/', p: 'img_0.png', e: 0 }],
+      layers: [
+        {
+          ddd: 0,
+          ind: 1,
+          ty: 2,
+          nm: 'img',
+          refId: 'img0',
+          ks: {
+            o: { a: 0, k: 100 },
+            r: { a: 0, k: 0 },
+            p: { a: 0, k: [50, 50, 0] },
+            a: { a: 0, k: [8, 8, 0] },
+            s: { a: 0, k: [500, 500, 100] },
+          },
+          ip: 0,
+          op: 30,
+          st: 0,
+        },
+      ],
+    });
+
+    const renderWith = async (assetResolver: AssetResolver): Promise<Uint8ClampedArray> => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottieClass({
+        canvas,
+        data: externalAssetAnimation,
+        autoplay: false,
+        assetResolver,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1));
+
+      await sleep(300);
+
+      const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+
+      dotLottie.destroy();
+
+      return data;
+    };
+
+    const countRedPixels = (data: Uint8ClampedArray): number => {
+      let red = 0;
+
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i]! > 200 && data[i + 1]! < 60 && data[i + 2]! < 60 && data[i + 3]! > 200) red += 1;
+      }
+
+      return red;
+    };
+
+    // The core paints unresolvable images as a neutral-gray placeholder. Counting only
+    // light-to-mid grays excludes both an opaque background (255) and the red PNG.
+    const countPlaceholderPixels = (data: Uint8ClampedArray): number => {
+      let gray = 0;
+
+      for (let i = 0; i < data.length; i += 4) {
+        const [r, g, b, a] = [data[i]!, data[i + 1]!, data[i + 2]!, data[i + 3]!];
+
+        if (a > 200 && r === g && g === b && r >= 160 && r <= 240) gray += 1;
+      }
+
+      return gray;
+    };
+
+    (isWorker ? test.skip : test)('is called with the referenced asset path and its bytes are rasterised', async () => {
+      const seen: string[] = [];
+
+      const resolved = await renderWith((assetSrc) => {
+        seen.push(assetSrc);
+
+        return assetSrc.endsWith('.png') ? redPng() : null;
+      });
+
+      expect(seen).toEqual(['/images/img_0.png']);
+
+      const unresolved = await renderWith(() => null);
+
+      expect(countRedPixels(resolved)).toBeGreaterThan(1000);
+      expect(countRedPixels(unresolved)).toBe(0);
+    });
+
+    (isWorker ? test.skip : test)('accepts an ArrayBuffer as well as a Uint8Array', async () => {
+      const data = await renderWith(() => redPng().buffer as ArrayBuffer);
+
+      expect(countRedPixels(data)).toBeGreaterThan(1000);
+    });
+
+    (isWorker ? test.skip : test)(
+      'an image the resolver cannot supply renders a placeholder instead of nothing',
+      async () => {
+        const unresolved = await renderWith(() => null);
+        const resolved = await renderWith(() => redPng());
+
+        expect(countPlaceholderPixels(unresolved)).toBeGreaterThan(1000);
+        expect(countPlaceholderPixels(resolved)).toBe(0);
+      },
+    );
+
+    (isWorker ? test.skip : test)(
+      'a throwing resolver leaves the asset unresolved without breaking the load',
+      async () => {
+        const data = await renderWith(() => {
+          throw new Error('resolver blew up');
+        });
+
+        expect(countRedPixels(data)).toBe(0);
+        expect(countPlaceholderPixels(data)).toBeGreaterThan(1000);
+      },
+    );
+
+    // Functions are not structured-cloneable, so the resolver must be dropped before
+    // postMessage — otherwise the worker rejects with DataCloneError and never loads.
+    (isWorker ? test : test.skip)(
+      'warns and still loads when given an assetResolver',
+      async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const rejections: unknown[] = [];
+        const onRejection = (event: PromiseRejectionEvent): void => {
+          rejections.push(event.reason);
+        };
+
+        window.addEventListener('unhandledrejection', onRejection);
+
+        try {
+          const onLoad = vi.fn();
+
+          dotLottie = new DotLottie({
+            canvas,
+            data: externalAssetAnimation,
+            autoplay: false,
+            assetResolver: () => redPng(),
+          });
+
+          dotLottie.addEventListener('load', onLoad);
+
+          await vi.waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1), { timeout: 15000 });
+
+          expect(rejections.map(String).join('\n')).not.toContain('DataCloneError');
+          expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining('`assetResolver` is not supported by DotLottieWorker'),
+          );
+        } finally {
+          window.removeEventListener('unhandledrejection', onRejection);
+          warn.mockRestore();
+        }
+      },
+      30000,
+    );
+  });
+
+  describe('stop', () => {
+    test('stop() does nothing when not playing', async () => {
+      const onLoad = vi.fn();
+      const onStop = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+      dotLottie.addEventListener('stop', onStop);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      await dotLottie.stop();
+
+      expect(onStop).not.toHaveBeenCalled();
+
+      expect(dotLottie.isPlaying).toBe(false);
+      expect(dotLottie.isStopped).toBe(true);
+    });
+
+    test('stop() after pause()', async () => {
+      const onPlay = vi.fn();
+      const onStop = vi.fn();
+      const onPause = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+        autoplay: true,
+      });
+
+      dotLottie.addEventListener('play', onPlay);
+      dotLottie.addEventListener('stop', onStop);
+      dotLottie.addEventListener('pause', onPause);
+
+      await vi.waitFor(() => {
+        expect(onPlay).toHaveBeenCalledTimes(1);
+      });
+
+      await dotLottie.pause();
+
+      expect(dotLottie.isPaused).toBe(true);
+      expect(dotLottie.isPlaying).toBe(false);
+      expect(dotLottie.isStopped).toBe(false);
+      expect(dotLottie.isFrozen).toBe(false);
+
+      await vi.waitFor(() => {
+        expect(onPause).toHaveBeenCalledTimes(1);
+      });
+
+      await dotLottie.stop();
+
+      await vi.waitFor(() => {
+        expect(onStop).toHaveBeenCalledTimes(1);
+      });
+
+      expect(dotLottie.isPlaying).toBe(false);
+      expect(dotLottie.isStopped).toBe(true);
+      expect(dotLottie.isFrozen).toBe(false);
+      expect(dotLottie.isPaused).toBe(false);
+    });
+
+    describe.each<Option>([
+      {
+        mode: 'forward',
+      },
+      {
+        mode: 'reverse',
+      },
+      {
+        mode: 'reverse-bounce',
+      },
+      {
+        mode: 'bounce',
+      },
+      {
+        mode: 'bounce',
+        segment: [10, 30],
+        speed: 2,
+      },
+      {
+        mode: 'reverse-bounce',
+        segment: [5, 25],
+        speed: 2,
+      },
+      {
+        mode: 'reverse',
+        segment: [1, 5],
+        speed: 0.5,
+      },
+      {
+        mode: 'forward',
+        segment: [0, 10],
+        speed: 0.5,
+      },
+    ])('config: %s', (config) => {
+      test('on stop()', async () => {
+        const onPlay = vi.fn();
+        const onStop = vi.fn();
+        const onFrame = vi.fn();
+        const onRender = vi.fn();
+
+        dotLottie = new DotLottie({
+          ...config,
+          canvas,
+          src,
+          autoplay: true,
+        });
+
+        dotLottie.addEventListener('play', onPlay);
+        dotLottie.addEventListener('stop', onStop);
+        dotLottie.addEventListener('frame', onFrame);
+        dotLottie.addEventListener('render', onRender);
+
+        await vi.waitFor(() => {
+          expect(onPlay).toHaveBeenCalledTimes(1);
+        });
+
+        const totalFrames = (config.segment?.[1] ?? dotLottie.totalFrames) - (config.segment?.[0] ?? 0);
+
+        const startFrame =
+          config.mode === 'reverse' || config.mode === 'reverse-bounce'
+            ? (config.segment?.[1] ?? dotLottie.totalFrames - 1)
+            : (config.segment?.[0] ?? 0);
+
+        expect(onFrame).toHaveBeenNthCalledWith(
+          1,
+          expect.objectContaining({
+            type: 'frame',
+            currentFrame: expect.closeTo(startFrame, -1),
+          }),
+        );
+        expect(onRender).toHaveBeenNthCalledWith(
+          1,
+          expect.objectContaining({
+            type: 'render',
+            currentFrame: expect.closeTo(startFrame, -1),
+          }),
+        );
+
+        await vi.waitUntil(() => {
+          if (dotLottie.mode.includes('reverse')) {
+            return dotLottie.currentFrame <= totalFrames * 0.8;
+          } else {
+            return dotLottie.currentFrame >= totalFrames * 0.2;
+          }
+        });
+
+        const currentFrameBeforeStop = dotLottie.currentFrame;
+
+        await dotLottie.stop();
+
+        await vi.waitFor(() => {
+          expect(onStop).toHaveBeenCalledTimes(1);
+        });
+
+        expect(dotLottie.isStopped).toBe(true);
+        expect(dotLottie.isPlaying).toBe(false);
+        expect(dotLottie.isFrozen).toBe(false);
+        expect(dotLottie.isPaused).toBe(false);
+
+        await sleep(500);
+
+        expect(dotLottie.currentFrame).not.toBe(currentFrameBeforeStop);
+        // FIXME: stop() dispatches events synchronously while the animation loop uses setTimeout,
+        // so the last spy call may reflect a pre-stop frame rather than the reset frame.
+        // Check the currentFrame property directly instead of relying on lastCalledWith.
+        expect(dotLottie.currentFrame).toBeCloseTo(startFrame, 0);
+      });
+    });
+  });
+
+  describe('setMode', () => {
+    test('setMode() does nothing when the current mode is the same', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+        autoplay: true,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      await dotLottie.setMode('forward');
+
+      expect(dotLottie.mode).toBe('forward');
+    });
+
+    test.each<Mode>(['reverse', 'bounce', 'reverse-bounce'])('setMode(%s)', async (mode) => {
+      const onPlay = vi.fn();
+      const onFrame = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+        autoplay: true,
+      });
+
+      dotLottie.addEventListener('play', onPlay);
+      dotLottie.addEventListener('frame', onFrame);
+
+      await vi.waitFor(() => {
+        expect(onPlay).toHaveBeenCalledTimes(1);
+      });
+
+      await dotLottie.setMode(mode);
+
+      expect(dotLottie.mode).toBe(mode);
+    });
+  });
+
+  describe('setVolume', () => {
+    test('clamps the volume and ignores NaN', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: audioSrc,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      expect(dotLottie.volume).toBe(1);
+
+      await dotLottie.setVolume(0.5);
+      expect(dotLottie.volume).toBe(0.5);
+
+      await dotLottie.setVolume(2);
+      expect(dotLottie.volume).toBe(1);
+
+      await dotLottie.setVolume(-1);
+      expect(dotLottie.volume).toBe(0);
+
+      await dotLottie.setVolume(Number.NaN);
+      expect(dotLottie.volume).toBe(0);
+    });
+
+    // a worker has no HTMLMediaElement, so audio only plays on the main thread
+    (isWorker ? test.skip : test)('applies a volume set before load to the audio', async () => {
+      const volumes: number[] = [];
+      const setter = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'volume')?.set;
+      const spy = vi.spyOn(HTMLMediaElement.prototype, 'volume', 'set').mockImplementation(function (
+        this: HTMLMediaElement,
+        value: number,
+      ) {
+        volumes.push(value);
+        setter?.call(this, value);
+      });
+      // headless Chrome rejects play() without a user gesture
+      const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: audioSrc,
+        autoplay: true,
+      });
+
+      await dotLottie.setVolume(0.5);
+
+      await vi.waitFor(() => {
+        expect(volumes).toContain(0.5);
+      });
+
+      spy.mockRestore();
+      play.mockRestore();
+    });
+  });
+
+  describe('loopCount', () => {
+    test('loops for 2 times', async () => {
+      const onLoad = vi.fn();
+      const onLoop = vi.fn();
+      const onComplete = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+        autoplay: true,
+        loop: true,
+        loopCount: 2,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+      dotLottie.addEventListener('loop', onLoop);
+      dotLottie.addEventListener('complete', onComplete);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      const durationMs = dotLottie.duration * 1000;
+
+      await vi.waitFor(
+        () => {
+          expect(onLoop).toHaveBeenCalledTimes(2);
+        },
+        {
+          timeout: durationMs * 3,
+        },
+      );
+
+      expect(dotLottie.loopCount).toBe(0);
+
+      await vi.waitFor(() => {
+        expect(onComplete).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    test('restarts playback after completing fixed loop count', async () => {
+      const onLoad = vi.fn();
+      const onLoop = vi.fn();
+      const onComplete = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+        autoplay: true,
+        loop: true,
+        loopCount: 2,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+      dotLottie.addEventListener('loop', onLoop);
+      dotLottie.addEventListener('complete', onComplete);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      const durationMs = dotLottie.duration * 1000;
+
+      await vi.waitFor(
+        () => {
+          expect(onLoop).toHaveBeenCalledTimes(2);
+        },
+        {
+          timeout: durationMs * 3,
+        },
+      );
+
+      expect(dotLottie.loopCount).toBe(0);
+
+      await vi.waitFor(() => {
+        expect(onComplete).toHaveBeenCalledTimes(1);
+      });
+
+      expect(dotLottie.isStopped).toBe(true);
+
+      onComplete.mockClear();
+      onLoop.mockClear();
+
+      await dotLottie.play();
+
+      expect(dotLottie.loopCount).toBe(0);
+
+      await vi.waitFor(
+        () => {
+          expect(onLoop).toHaveBeenCalledTimes(2);
+        },
+        {
+          timeout: durationMs * 3,
+        },
+      );
+
+      await vi.waitFor(
+        () => {
+          expect(onComplete).toHaveBeenCalledTimes(1);
+        },
+        {
+          timeout: durationMs,
+        },
+      );
+    });
+
+    test('loopCount = zero -> loops forever', async () => {
+      const onLoad = vi.fn();
+      const onLoop = vi.fn();
+      const onComplete = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+        autoplay: true,
+        loop: true,
+        loopCount: 0,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+      dotLottie.addEventListener('loop', onLoop);
+      dotLottie.addEventListener('complete', onComplete);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      const durationMs = dotLottie.duration * 1000;
+
+      await vi.waitFor(
+        () => {
+          expect(onLoop).toHaveBeenCalledTimes(4);
+        },
+        {
+          timeout: durationMs * 4,
+        },
+      );
+
+      expect(dotLottie.loopCount).toBe(4);
+
+      expect(onComplete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('freeze/unfreeze', () => {
+    test('freeze stops the animation loop without changing playback state', async () => {
+      const onPlay = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        autoplay: true,
+        src,
+      });
+
+      dotLottie.addEventListener('play', onPlay);
+
+      await vi.waitFor(() => expect(onPlay).toHaveBeenCalledTimes(1));
+
+      expect(dotLottie.isPlaying).toBe(true);
+      expect(dotLottie.isFrozen).toBe(false);
+
+      await dotLottie.freeze();
+
+      expect(dotLottie.isFrozen).toBe(true);
+      expect(dotLottie.isPlaying).toBe(true);
+    });
+
+    test('unfreeze resumes the animation loop from the same playback state', async () => {
+      const onPlay = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        autoplay: true,
+        src,
+      });
+
+      dotLottie.addEventListener('play', onPlay);
+
+      await vi.waitFor(() => expect(onPlay).toHaveBeenCalledTimes(1));
+
+      expect(dotLottie.isPlaying).toBe(true);
+      expect(dotLottie.isFrozen).toBe(false);
+
+      await dotLottie.freeze();
+
+      expect(dotLottie.isPlaying).toBe(true);
+      expect(dotLottie.isFrozen).toBe(true);
+
+      const currentFrameAtFreeze = dotLottie.currentFrame;
+
+      await dotLottie.unfreeze();
+
+      expect(dotLottie.isPlaying).toBe(true);
+      expect(dotLottie.isFrozen).toBe(false);
+
+      // wait for the animation to play until the end
+      await vi.waitUntil(() => dotLottie.currentFrame > currentFrameAtFreeze);
+    });
+
+    test('freeze while animation is frozen does nothing', async () => {
+      const onUnfreeze = vi.fn();
+      const onFreeze = vi.fn();
+      const onPlay = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+        autoplay: true,
+      });
+
+      dotLottie.addEventListener('play', onPlay);
+      dotLottie.addEventListener('unfreeze', onUnfreeze);
+      dotLottie.addEventListener('freeze', onFreeze);
+
+      await vi.waitFor(() => expect(onPlay).toHaveBeenCalledTimes(1));
+
+      expect(dotLottie.isFrozen).toBe(false);
+
+      await dotLottie.freeze();
+
+      expect(dotLottie.isFrozen).toBe(true);
+
+      await dotLottie.freeze();
+
+      expect(dotLottie.isFrozen).toBe(true);
+
+      expect(onUnfreeze).toHaveBeenCalledTimes(0);
+      expect(onFreeze).toHaveBeenCalledTimes(1);
+    });
+
+    test('unfreeze while animation is not frozen does nothing', async () => {
+      const onUnfreeze = vi.fn();
+      const onPlay = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+        autoplay: true,
+      });
+
+      dotLottie.addEventListener('play', onPlay);
+      dotLottie.addEventListener('unfreeze', onUnfreeze);
+
+      await vi.waitFor(() => expect(onPlay).toHaveBeenCalledTimes(1));
+
+      expect(dotLottie.isFrozen).toBe(false);
+
+      dotLottie.unfreeze();
+
+      expect(dotLottie.isFrozen).toBe(false);
+      expect(dotLottie.isPlaying).toBe(true);
+
+      expect(onUnfreeze).toHaveBeenCalledTimes(0);
+    });
+  });
+
+  describe('setImageSlot', () => {
+    // 24x24 solid magenta PNG (data URI) — same asset the dotlottie-rs image_slot example uses.
+    const MAGENTA_PNG =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAIAAABvFaqvAAAAH0lEQVR42mO4pjGNKohh1KBRg0YNGjVo1KBRgwbeIADJIY0uOOudVwAAAABJRU5ErkJggg==';
+
+    // image.json declares an image slot with id "sun_img" on the rising-sun asset.
+    const loadImageAnimation = async (): Promise<void> => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({ autoplay: false, canvas, src: imageSlotSrc });
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1), { timeout: 5000 });
+    };
+
+    // Total absolute per-channel difference the swap produces across a few frames of the timeline.
+    // Pixel readback only works on the main-thread canvas (the worker canvas is transferred offscreen),
+    // so callers of this helper are guarded with isWorker.
+    const measureSwapDiff = async (swap: () => Promise<boolean>): Promise<number> => {
+      const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+      const total = dotLottie.totalFrames;
+      // Sample a few frames across the timeline — the slotted sun rises through the frame.
+      const frames = [0.3, 0.5, 0.7].map((fraction) => Math.round(total * fraction));
+
+      const readFrame = async (frame: number): Promise<Uint8ClampedArray> => {
+        await dotLottie.setFrame(frame);
+
+        return ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      };
+
+      const baseline: Array<{ frame: number; pixels: Uint8ClampedArray }> = [];
+      for (const frame of frames) {
+        baseline.push({ frame, pixels: await readFrame(frame) });
+      }
+
+      expect(await swap()).toBe(true);
+
+      let totalDiff = 0;
+      for (const { frame, pixels } of baseline) {
+        const after = await readFrame(frame);
+
+        for (let p = 0; p < after.length; p += 1) {
+          totalDiff += Math.abs((after[p] ?? 0) - (pixels[p] ?? 0));
+        }
+      }
+
+      return totalDiff;
+    };
+
+    test('returns true when setting a known image slot', async () => {
+      await loadImageAnimation();
+
+      expect(await dotLottie.setImageSlot('sun_img', MAGENTA_PNG)).toBe(true);
+    });
+
+    // Runs for both DotLottie and DotLottieWorker: the http(s) fetch happens on the main thread in
+    // both, so the worker only ever receives an inlined data: URI.
+    test('resolves an http(s) src via fetch before handing it to the core', async () => {
+      await loadImageAnimation();
+
+      const pngBytes = Uint8Array.from(atob(MAGENTA_PNG.split(',')[1] ?? ''), (char) => char.charCodeAt(0));
+      const fetchSpy = vi
+        .spyOn(window, 'fetch')
+        .mockImplementation(
+          async () => new Response(pngBytes, { headers: { 'content-type': 'image/png' }, status: 200 }),
+        );
+
+      const url = 'https://example.com/sun.png';
+
+      expect(await dotLottie.setImageSlot('sun_img', url)).toBe(true);
+      expect(fetchSpy).toHaveBeenCalledWith(url);
+
+      fetchSpy.mockRestore();
+    });
+
+    (isWorker ? test.skip : test)('swapping the image slot changes the rendered output', async () => {
+      await loadImageAnimation();
+
+      // Replacing the detailed sun with solid magenta over a large area must shift many pixels.
+      expect(await measureSwapDiff(() => dotLottie.setImageSlot('sun_img', MAGENTA_PNG))).toBeGreaterThan(1000);
+    });
+
+    (isWorker ? test.skip : test)('fetches an http(s) src and inlines it before rendering', async () => {
+      await loadImageAnimation();
+
+      // The WASM renderer cannot fetch remote images (and crashes on a non-embedded slot),
+      // so the wrapper must fetch the URL itself and inline it as a data: URI.
+      const pngBytes = Uint8Array.from(atob(MAGENTA_PNG.split(',')[1] ?? ''), (char) => char.charCodeAt(0));
+      const fetchSpy = vi
+        .spyOn(window, 'fetch')
+        .mockImplementation(
+          async () => new Response(pngBytes, { headers: { 'content-type': 'image/png' }, status: 200 }),
+        );
+
+      const url = 'https://example.com/sun.png';
+      const totalDiff = await measureSwapDiff(() => dotLottie.setImageSlot('sun_img', url));
+
+      expect(fetchSpy).toHaveBeenCalledWith(url);
+      expect(totalDiff).toBeGreaterThan(1000);
+
+      fetchSpy.mockRestore();
+    });
+  });
+
+  describe('setFrame', () => {
+    test('setFrame() does nothing when the animation is not loaded', async () => {
+      const onFrame = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+      });
+
+      dotLottie.addEventListener('frame', onFrame);
+
+      await dotLottie.setFrame(10);
+
+      expect(onFrame).not.toHaveBeenCalled();
+    });
+
+    test('setFrame() updates and renders a new frame without changing the playback state', async () => {
+      const onPlay = vi.fn();
+      const onFrame = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+        autoplay: true,
+      });
+
+      dotLottie.addEventListener('play', onPlay);
+      dotLottie.addEventListener('frame', onFrame);
+
+      await vi.waitFor(() => expect(onPlay).toHaveBeenCalledTimes(1));
+
+      onFrame.mockClear();
+
+      await dotLottie.setFrame(10);
+
+      // After setFrame, verify the currentFrame property is set.
+      // For the worker, the state snapshot is a second round-trip, so the
+      // render loop may advance the frame past 10 before it is captured.
+      expect(dotLottie.currentFrame).toBeGreaterThanOrEqual(10);
+      expect(dotLottie.currentFrame).toBeLessThan(12);
+
+      // Wait until a frame event with the target frame appears
+      // (pending animation loop callbacks may fire stale frames first)
+      await vi.waitFor(() => {
+        const frameEvents = onFrame.mock.calls.map((call: any) => call[0]);
+        const hasTargetFrame = frameEvents.some((event: any) => Math.abs(event.currentFrame - 10) < 0.5);
+
+        expect(hasTargetFrame).toBe(true);
+      });
+
+      expect(dotLottie.isPlaying).toBe(true);
+    });
+
+    test('setFrame() does nothing when the new frame is out of range', async () => {
+      const onLoad = vi.fn();
+      const onFrame = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+        mode: 'reverse',
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+      dotLottie.addEventListener('frame', onFrame);
+
+      await vi.waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1));
+
+      onFrame.mockClear();
+
+      const currentFrameBeforeSetFrame = dotLottie.currentFrame;
+
+      await dotLottie.setFrame(100000);
+
+      expect(onFrame).not.toHaveBeenCalled();
+
+      expect(dotLottie.currentFrame).toBe(currentFrameBeforeSetFrame);
+    });
+  });
+
+  describe('removeEventListener', () => {
+    test('removeEventListener() removes an event listener', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      dotLottie.removeEventListener('load', onLoad);
+
+      dotLottie.load({
+        src,
+      });
+
+      expect(onLoad).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('addEventListener', () => {
+    test('addEventListener() adds a new event listener', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    test('registers the same handler only once', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+    });
+  });
+
+  describe('setRenderConfig', () => {
+    test('sets custom render config and verifies default behavior', async () => {
+      const onLoad = vi.fn();
+      const defaultDPR = getDefaultDPR();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      expect(dotLottie.renderConfig.devicePixelRatio).toBe(defaultDPR);
+
+      await dotLottie.setRenderConfig({
+        devicePixelRatio: 0.2,
+      });
+
+      expect(dotLottie.renderConfig.devicePixelRatio).toBe(0.2);
+    });
+
+    test('reverts to default devicePixelRatio when set to 0 and reset', async () => {
+      const onLoad = vi.fn();
+      const defaultDPR = getDefaultDPR();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+        renderConfig: {
+          devicePixelRatio: 0.5,
+        },
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      expect(dotLottie.renderConfig.devicePixelRatio).toBe(0.5);
+
+      await dotLottie.setRenderConfig({
+        devicePixelRatio: 0.2,
+      });
+      expect(dotLottie.renderConfig.devicePixelRatio).toBe(0.2);
+
+      await dotLottie.setRenderConfig({});
+      expect(dotLottie.renderConfig.devicePixelRatio).toBe(defaultDPR);
+    });
+  });
+
+  describe('loadAnimation', () => {
+    // eslint-disable-next-line no-secrets/no-secrets
+    const multiAnimationSrc = 'https://lottie.host/294b684d-d6b4-4116-ab35-85ef566d4379/VkGHcqcMUI.lottie';
+
+    test('loads an animation in .lottie file by id', { timeout: 30000 }, async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: multiAnimationSrc,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1), {
+        timeout: 20000,
+      });
+
+      const animations = dotLottie.manifest?.animations ?? [];
+
+      expect(animations.length).toBeGreaterThan(0);
+
+      const animationId = animations[animations.length - 1]?.id ?? '';
+
+      await dotLottie.loadAnimation(animationId);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(2);
+      });
+
+      expect(dotLottie.activeAnimationId).toEqual(animationId);
+    });
+
+    test('emits loadError when loading an animation by invalid id', async () => {
+      const onLoadError = vi.fn();
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: multiAnimationSrc,
+      });
+
+      dotLottie.addEventListener('loadError', onLoadError);
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1), {
+        timeout: 10000,
+      });
+
+      const animationId = 'invalid';
+
+      await dotLottie.loadAnimation(animationId);
+
+      await vi.waitFor(() => {
+        expect(onLoadError).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    test('do nothing when .lottie file is not loaded', async () => {
+      const onLoad = vi.fn();
+      const onLoadError = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+      dotLottie.addEventListener('loadError', onLoadError);
+
+      await dotLottie.loadAnimation('invalid');
+
+      expect(onLoad).not.toHaveBeenCalled();
+      expect(onLoadError).not.toHaveBeenCalled();
+    });
+
+    test('manifest is null when a lottie json is loaded', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1));
+
+      expect(dotLottie.manifest).toBeNull();
+    });
+  });
+
+  describe('markers', () => {
+    test('return all markers in the animation', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+      });
+
+      expect(dotLottie.marker).toBe('');
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      const markers = dotLottie.markers();
+
+      expect(markers).toEqual([
+        { name: 'Marker_1', start: 0, end: 10 },
+        { name: 'Marker_2', start: 10, end: 20 },
+        { name: 'Marker_3', start: 20, end: 30 },
+        { name: 'Marker_4', start: 30, end: 42 },
+      ]);
+    });
+
+    test('loads an animation and play a specific marker', async () => {
+      const onPlay = vi.fn();
+      const onFrame = vi.fn();
+      const onCompelete = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+        autoplay: true,
+        marker: 'Marker_2',
+      });
+
+      dotLottie.addEventListener('play', onPlay);
+      dotLottie.addEventListener('frame', onFrame);
+      dotLottie.addEventListener('complete', onCompelete);
+
+      await vi.waitFor(() => {
+        expect(onPlay).toHaveBeenCalledTimes(1);
+      });
+
+      expect(dotLottie.marker).toBe('Marker_2');
+
+      await vi.waitFor(() => {
+        expect(onCompelete).toHaveBeenCalledTimes(1);
+      });
+
+      expect(onFrame).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          type: 'frame',
+          currentFrame: expect.closeTo(10, 0),
+        }),
+      );
+
+      expect(onFrame).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          type: 'frame',
+          currentFrame: expect.closeTo(20, 0),
+        }),
+      );
+    });
+
+    test('setMarker() sets a new marker', async () => {
+      const onPlay = vi.fn();
+      const onFrame = vi.fn();
+      const onCompelete = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+        autoplay: true,
+        useFrameInterpolation: false,
+      });
+
+      dotLottie.addEventListener('play', onPlay);
+      dotLottie.addEventListener('frame', onFrame);
+      dotLottie.addEventListener('complete', onCompelete);
+
+      await vi.waitFor(() => {
+        expect(onPlay).toHaveBeenCalledTimes(1);
+      });
+
+      await dotLottie.setMarker('Marker_3');
+      onFrame.mockClear();
+
+      await vi.waitFor(() => {
+        expect(onCompelete).toHaveBeenCalledTimes(1);
+      });
+
+      expect(onFrame).toHaveBeenLastCalledWith({
+        type: 'frame',
+        currentFrame: 30,
+      });
+    });
+
+    test("setMarker clears the marker when the marker doesn't exist", async () => {
+      const onPlay = vi.fn();
+      const onFrame = vi.fn();
+      const onCompelete = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+        autoplay: true,
+        marker: 'Marker_2',
+      });
+
+      dotLottie.addEventListener('play', onPlay);
+      dotLottie.addEventListener('frame', onFrame);
+      dotLottie.addEventListener('complete', onCompelete);
+
+      await vi.waitFor(() => {
+        expect(onPlay).toHaveBeenCalledTimes(1);
+      });
+
+      await dotLottie.setMarker('invalid');
+      onFrame.mockClear();
+
+      await vi.waitFor(
+        () => {
+          expect(onCompelete).toHaveBeenCalledTimes(1);
+        },
+        {
+          timeout: dotLottie.duration * 1000 + 500,
+        },
+      );
+
+      expect(onFrame).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          type: 'frame',
+          currentFrame: expect.closeTo(dotLottie.totalFrames - 1, 0),
+        }),
+      );
+
+      expect(dotLottie.marker).toBe('');
+    });
+  });
+
+  describe.skip('theming', () => {
+    test('fail to load a theme', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      const result = await dotLottie.setTheme('invalid');
+
+      expect(dotLottie.activeThemeId).toBeFalsy();
+
+      expect(result).toBe(false);
+    });
+
+    test('load a global theme', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      const themeId = 'global_theme';
+
+      const result = await dotLottie.setTheme(themeId);
+
+      expect(dotLottie.activeThemeId).toBe(themeId);
+
+      expect(result).toBe(true);
+    });
+
+    test("load an animation's theme", async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      const themes = dotLottie.manifest?.themes ?? [];
+
+      expect(themes).toHaveLength(2);
+
+      const themeId = themes[0]?.id ?? '';
+
+      const result = await dotLottie.setTheme(themeId);
+
+      expect(dotLottie.activeThemeId).toBe(themeId);
+
+      expect(result).toBe(true);
+    });
+
+    test('load theme data', async () => {
+      const themeData = {
+        c0: {
+          p: {
+            a: 0,
+            k: [1, 0, 1],
+          },
+        },
+      };
+
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      const result = await dotLottie.setThemeData(JSON.stringify(themeData));
+
+      expect(result).toBe(true);
+    });
+
+    test('fail to load theme data', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      const result = await dotLottie.setThemeData('invalid');
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('themeId config', () => {
+    const themedSrc = new URL('../../../fixtures/multi_themes.lottie', import.meta.url).href;
+
+    test('applies themeId from the constructor config on load', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: themedSrc,
+        themeId: 'dark',
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      expect(dotLottie.activeThemeId).toBe('dark');
+    });
+
+    test('applies themeId passed to load()', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: themedSrc,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      expect(dotLottie.activeThemeId).toBeFalsy();
+
+      dotLottie.load({ src: themedSrc, themeId: 'sky' });
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(2);
+      });
+
+      expect(dotLottie.activeThemeId).toBe('sky');
+
+      dotLottie.load({ src: themedSrc });
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(3);
+      });
+
+      expect(dotLottie.activeThemeId).toBeFalsy();
+    });
+  });
+
+  describe('animationId config', () => {
+    const multiAnimationSrc = 'https://lottie.host/294b684d-d6b4-4116-ab35-85ef566d4379/VkGHcqcMUI.lottie';
+
+    test('loads the animationId from the constructor config', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: multiAnimationSrc,
+        animationId: 'wink',
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1), {
+        timeout: 10000,
+      });
+
+      expect(dotLottie.activeAnimationId).toBe('wink');
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(onLoad).toHaveBeenCalledTimes(1);
+    });
+
+    test('loads the animationId passed to load()', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: multiAnimationSrc,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1), {
+        timeout: 10000,
+      });
+
+      expect(dotLottie.activeAnimationId).toBe('anger');
+
+      dotLottie.load({ src: multiAnimationSrc, animationId: 'yummy' });
+
+      await vi.waitFor(() => expect(onLoad).toHaveBeenCalledTimes(2), {
+        timeout: 10000,
+      });
+
+      expect(dotLottie.activeAnimationId).toBe('yummy');
+    });
+
+    test('emits loadError for an unknown animationId', async () => {
+      const onLoadError = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: multiAnimationSrc,
+        animationId: 'invalid',
+      });
+
+      dotLottie.addEventListener('loadError', onLoadError);
+
+      await vi.waitFor(() => expect(onLoadError).toHaveBeenCalledTimes(1), {
+        timeout: 10000,
+      });
+    });
+  });
+
+  describe('layout', () => {
+    test('default layout', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+      });
+
+      expect(dotLottie.layout).toBeUndefined();
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      expect(dotLottie.layout?.fit).toBe('contain');
+      expect(dotLottie.layout?.align).toEqual([0.5, 0.5]);
+    });
+
+    test.each<Layout>([
+      {
+        fit: 'cover',
+        align: [0.5, 0.5],
+      },
+      {
+        fit: 'fill',
+        align: [0.5, 0],
+      },
+      {
+        fit: 'none',
+        align: [0, 0],
+      },
+      {
+        fit: 'contain',
+        align: [0, 1],
+      },
+      {
+        fit: 'fit-height',
+        align: [1, 0],
+      },
+      {
+        fit: 'fit-width',
+        align: [0, 0.5],
+      },
+    ])('init DotLottie with different layout: %p', async (layout) => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+        layout,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      expect(dotLottie.layout).toEqual(layout);
+    });
+
+    test("load a new animation with a different layout and it's applied", async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      const layout: Layout = {
+        fit: 'cover',
+        align: [0.5, 0.5],
+      };
+
+      dotLottie.load({
+        src,
+        layout,
+      });
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(2);
+      });
+
+      expect(dotLottie.layout).toEqual(layout);
+    });
+  });
+
+  test('setViewport() sets the viewport', async () => {
+    const onLoad = vi.fn();
+
+    dotLottie = new DotLottie({
+      canvas,
+      src,
+    });
+
+    dotLottie.addEventListener('load', onLoad);
+
+    await vi.waitFor(() => {
+      expect(onLoad).toHaveBeenCalledTimes(1);
+    });
+
+    const updated = await dotLottie.setViewport(0, 0, 100, 100);
+
+    expect(updated).toBe(true);
+  });
+
+  // IntersectionObserver doesn't trigger reliably in Vitest 4's browser mode
+  // because the test page is embedded in an iframe where viewport-relative positioning
+  // (marginTop: 100vh) doesn't take elements out of the intersection root.
+  describe.skip('freezeOnOffscreen', () => {
+    test('freezeOnOffscreen defaults to true when not defined', async () => {
+      const onFreeze = vi.fn();
+
+      canvas.style.marginTop = '100vh';
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+        autoplay: true,
+        // freezeOnOffscreen is not explicitly defined
+      });
+
+      dotLottie.addEventListener('freeze', onFreeze);
+
+      await vi.waitFor(() => {
+        expect(onFreeze).toHaveBeenCalledTimes(1);
+      });
+
+      expect(dotLottie.isFrozen).toBe(true);
+    });
+
+    test('freeze when canvas is initially offscreen and freezeOnOffscreen is true', async () => {
+      const onFreeze = vi.fn();
+
+      canvas.style.marginTop = '100vh';
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+        autoplay: true,
+        renderConfig: {
+          freezeOnOffscreen: true,
+        },
+      });
+
+      dotLottie.addEventListener('freeze', onFreeze);
+
+      await vi.waitFor(() => {
+        expect(onFreeze).toHaveBeenCalledTimes(1);
+      });
+
+      expect(dotLottie.isFrozen).toBe(true);
+    });
+
+    test('do not freeze when canvas is initially offscreen and freezeOnOffscreen is false', async () => {
+      const onFreeze = vi.fn();
+
+      canvas.style.marginTop = '100vh';
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+        autoplay: true,
+        renderConfig: {
+          freezeOnOffscreen: false,
+        },
+      });
+
+      dotLottie.addEventListener('freeze', onFreeze);
+
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      expect(onFreeze).not.toHaveBeenCalled();
+
+      expect(dotLottie.isFrozen).toBe(false);
+    });
+
+    test('freeze when canvas goes offscreen during animation', async () => {
+      const onFreeze = vi.fn();
+      const onUnfreeze = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+        autoplay: true,
+        renderConfig: {
+          freezeOnOffscreen: true,
+        },
+      });
+
+      dotLottie.addEventListener('freeze', onFreeze);
+      dotLottie.addEventListener('unfreeze', onUnfreeze);
+
+      await vi.waitFor(() => {
+        expect(dotLottie.isPlaying).toBe(true);
+      });
+
+      canvas.style.marginTop = '100vh';
+
+      await vi.waitFor(() => {
+        expect(onFreeze).toHaveBeenCalledTimes(1);
+      });
+
+      expect(dotLottie.isFrozen).toBe(true);
+    });
+
+    test('unfreeze when canvas comes back into the viewport', async () => {
+      const onFreeze = vi.fn();
+      const onUnfreeze = vi.fn();
+
+      canvas.style.marginTop = '100vh';
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+        autoplay: true,
+        renderConfig: {
+          freezeOnOffscreen: true,
+        },
+      });
+
+      dotLottie.addEventListener('freeze', onFreeze);
+      dotLottie.addEventListener('unfreeze', onUnfreeze);
+
+      await vi.waitFor(() => {
+        expect(onFreeze).toHaveBeenCalledTimes(1);
+      });
+
+      canvas.style.marginTop = '0';
+
+      await vi.waitFor(() => {
+        expect(onUnfreeze).toHaveBeenCalledTimes(1);
+      });
+
+      expect(dotLottie.isPlaying).toBe(true);
+      expect(dotLottie.isFrozen).toBe(false);
+    });
+
+    test('stay frozen if canvas remains offscreen and freezeOnOffscreen is true', async () => {
+      const onFreeze = vi.fn();
+      const onUnfreeze = vi.fn();
+
+      canvas.style.marginTop = '100vh';
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+        autoplay: true,
+        renderConfig: {
+          freezeOnOffscreen: true,
+        },
+      });
+
+      dotLottie.addEventListener('freeze', onFreeze);
+      dotLottie.addEventListener('unfreeze', onUnfreeze);
+
+      await vi.waitFor(() => {
+        expect(onFreeze).toHaveBeenCalledTimes(1);
+      });
+
+      expect(dotLottie.isFrozen).toBe(true);
+      expect(onUnfreeze).not.toHaveBeenCalled();
+
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      expect(dotLottie.isFrozen).toBe(true);
+    });
+
+    test('update freezeOnOffscreen using setRenderConfig', async () => {
+      const onFreeze = vi.fn();
+      const onUnfreeze = vi.fn();
+
+      canvas.style.marginTop = '100vh';
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+        autoplay: true,
+        renderConfig: {
+          freezeOnOffscreen: true,
+        },
+      });
+
+      dotLottie.addEventListener('freeze', onFreeze);
+      dotLottie.addEventListener('unfreeze', onUnfreeze);
+
+      await vi.waitFor(() => {
+        expect(onFreeze).toHaveBeenCalledTimes(1);
+      });
+
+      expect(dotLottie.isFrozen).toBe(true);
+
+      await dotLottie.setRenderConfig({
+        freezeOnOffscreen: false,
+      });
+
+      canvas.style.marginTop = '0';
+
+      await vi.waitFor(() => {
+        expect(onUnfreeze).toHaveBeenCalledTimes(1);
+      });
+
+      canvas.style.marginTop = '100vh';
+
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      expect(onFreeze).toHaveBeenCalledTimes(1);
+
+      expect(dotLottie.isFrozen).toBe(false);
+    });
+  });
+
+  // setRenderConfig() before load observes the canvas early, so the observer's only "not visible" entry arrives
+  // before the animation loop starts and freeze() ignores it. The load-time viewport check is then the only guard,
+  // which is what these tests exercise (DotLottieReact always calls setRenderConfig() on mount).
+  describe('freezeOnOffscreen with setRenderConfig() before load', () => {
+    test('freeze when the canvas is inside a display: none ancestor', async () => {
+      const wrapper = document.createElement('div');
+      const onLoad = vi.fn();
+
+      wrapper.style.display = 'none';
+      wrapper.appendChild(canvas);
+      document.body.appendChild(wrapper);
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+        autoplay: true,
+        loop: true,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+      await dotLottie.setRenderConfig({});
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      await vi.waitFor(() => {
+        expect(dotLottie.isFrozen).toBe(true);
+      });
+
+      wrapper.remove();
+    });
+
+    test('keep playing when the canvas is visible but 0x0', async () => {
+      const onLoad = vi.fn();
+
+      canvas.style.width = '0px';
+      canvas.style.height = '0px';
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+        autoplay: true,
+        loop: true,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+      await dotLottie.setRenderConfig({});
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+      });
+
+      await sleep(500);
+
+      expect(dotLottie.isFrozen).toBe(false);
+    });
+  });
+
+  describe('stateMachineGetInputs', () => {
+    test('gets all inputs correctly', async () => {
+      canvas.style.display = 'none';
+
+      const onLoad = vi.fn();
+      const onPlay = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src,
+        autoplay: true,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+      dotLottie.addEventListener('play', onPlay);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(1);
+        expect(onPlay).toHaveBeenCalledTimes(1);
+      });
+
+      const response = await fetch(smSrc);
+      const smData = await response.json();
+
+      await dotLottie.stateMachineLoadData(JSON.stringify(smData));
+      await dotLottie.stateMachineStart();
+
+      const inputs = await dotLottie.stateMachineGetInputs();
+
+      // Assert and narrow the type
+      expect(inputs).toBeDefined();
+      const definedInputs = inputs as string[];
+
+      const predefinedInputs: string[] = [
+        '@elapsedTime',
+        'Numeric',
+        'a_exited',
+        'Boolean',
+        'Step',
+        'Event',
+        'rating',
+        'Numeric',
+        'b_exited',
+        'String',
+      ];
+
+      expect(definedInputs.length).toBe(predefinedInputs.length);
+      expect(definedInputs.length % 2).toBe(0);
+
+      // Helper function to convert array to set of pair strings
+      function toSet(arr: string[]): Set<string> {
+        const pairs: string[] = [];
+
+        for (let i = 0; i < arr.length; i += 2) {
+          pairs.push(JSON.stringify([arr[i], arr[i + 1]]));
+        }
+
+        return new Set(pairs);
+      }
+
+      const inputSet = toSet(definedInputs);
+      const predefinedSet = toSet(predefinedInputs);
+
+      expect(inputSet).toEqual(predefinedSet);
+    });
+  });
+
+  describe('autoResize', () => {
+    test('should have autoResize disabled by default', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalled();
+      });
+
+      expect(dotLottie.renderConfig.autoResize).toBeFalsy();
+    });
+
+    test('should enable autoResize when explicitly set to true', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+        renderConfig: {
+          autoResize: true,
+        },
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalled();
+      });
+
+      expect(dotLottie.renderConfig.autoResize).toBeTruthy();
+    });
+
+    test('should disable autoResize when explicitly set to false', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+        renderConfig: {
+          autoResize: false,
+        },
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalled();
+      });
+
+      expect(dotLottie.renderConfig.autoResize).toBeFalsy();
+    });
+
+    test('should automatically resize the canvas when autoResize is enabled and the canvas element size changes', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+        renderConfig: {
+          autoResize: true,
+        },
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalled();
+      });
+
+      const initialWidth = canvas.width;
+      const initialHeight = canvas.height;
+
+      const scale = 2;
+
+      canvas.style.width = `${canvas.getBoundingClientRect().width * scale}px`;
+      canvas.style.height = `${canvas.getBoundingClientRect().height * scale}px`;
+
+      await vi.waitFor(() => {
+        expect(canvas.width).toBe(initialWidth * scale);
+        expect(canvas.height).toBe(initialHeight * scale);
+      });
+    });
+
+    test('should not resize the canvas when autoResize is disabled, even if the canvas element size changes', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+        renderConfig: {
+          autoResize: false,
+        },
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalled();
+      });
+
+      const initialWidth = canvas.width;
+      const initialHeight = canvas.height;
+
+      const scale = 2;
+
+      canvas.style.width = `${canvas.getBoundingClientRect().width * scale}px`;
+      canvas.style.height = `${canvas.getBoundingClientRect().height * scale}px`;
+
+      await vi.waitFor(() => {
+        expect(canvas.width).toBe(initialWidth);
+        expect(canvas.height).toBe(initialHeight);
+      });
+    });
+
+    test('should stop resizing the canvas when autoResize is disabled dynamically after being enabled', async () => {
+      const onLoad = vi.fn();
+
+      dotLottie = new DotLottie({
+        canvas,
+        src: jsonSrc,
+        renderConfig: {
+          autoResize: true,
+        },
+      });
+
+      dotLottie.addEventListener('load', onLoad);
+
+      await vi.waitFor(() => {
+        expect(onLoad).toHaveBeenCalled();
+      });
+
+      const initialWidth = canvas.width;
+      const initialHeight = canvas.height;
+
+      const scale = 2;
+
+      canvas.style.width = `${canvas.getBoundingClientRect().width * scale}px`;
+      canvas.style.height = `${canvas.getBoundingClientRect().height * scale}px`;
+
+      await vi.waitFor(() => {
+        expect(canvas.width).toBe(initialWidth * scale);
+        expect(canvas.height).toBe(initialHeight * scale);
+      });
+
+      await dotLottie.setRenderConfig({
+        autoResize: false,
+      });
+
+      const updatedWidth = canvas.width;
+      const updatedHeight = canvas.height;
+
+      canvas.style.width = `${canvas.getBoundingClientRect().width * scale}px`;
+      canvas.style.height = `${canvas.getBoundingClientRect().height * scale}px`;
+
+      await vi.waitFor(() => {
+        expect(canvas.width).toBe(updatedWidth);
+        expect(canvas.height).toBe(updatedHeight);
+      });
+    });
+  });
+
+  test('doesn"t throw an error when resize is called and the canvas is not visible', async () => {
+    canvas.style.display = 'none';
+
+    const onLoad = vi.fn();
+    const onPlay = vi.fn();
+
+    dotLottie = new DotLottie({
+      canvas,
+      src,
+      autoplay: true,
+    });
+
+    dotLottie.addEventListener('load', onLoad);
+    dotLottie.addEventListener('play', onPlay);
+
+    await vi.waitFor(() => {
+      expect(onLoad).toHaveBeenCalledTimes(1);
+      expect(onPlay).toHaveBeenCalledTimes(1);
+    });
+
+    expect(() => dotLottie.resize()).not.toThrow();
+
+    canvas.style.display = 'block';
+  });
+
+  (isWorker ? test.skip : test)('play animation with no canvas', async () => {
+    const onLoad = vi.fn();
+    const onPlay = vi.fn();
+    const onComplete = vi.fn();
+    const onFrame = vi.fn();
+
+    // info: cast DotLottie to any to bypass the type check, since this is only for the non-worker version
+    dotLottie = new (DotLottie as unknown as typeof DotLottieClass)({
+      canvas: {
+        width: 100,
+        height: 100,
+      },
+      src,
+      autoplay: true,
+      useFrameInterpolation: false,
+    });
+
+    dotLottie.addEventListener('load', onLoad);
+    dotLottie.addEventListener('play', onPlay);
+    dotLottie.addEventListener('complete', onComplete);
+    dotLottie.addEventListener('frame', onFrame);
+
+    await vi.waitFor(() => {
+      expect(onLoad).toHaveBeenCalledTimes(1);
+      expect(onPlay).toHaveBeenCalledTimes(1);
+    });
+
+    await vi.waitFor(
+      () => {
+        expect(onComplete).toHaveBeenCalledTimes(1);
+      },
+      {
+        timeout: dotLottie.duration * 1000 + 500,
+      },
+    );
+
+    expect(onFrame).toHaveBeenNthCalledWith(1, {
+      type: 'frame',
+      currentFrame: 0,
+    });
+
+    expect(onFrame).toHaveBeenNthCalledWith(dotLottie.totalFrames, {
+      type: 'frame',
+      currentFrame: dotLottie.totalFrames - 1,
+    });
+  });
+
+  // FIXME: investigate why this test is flaky in CI environment
+  test.skip('registerFont via URL and verify animation loads', async () => {
+    const onReady = vi.fn();
+    const onLoad = vi.fn();
+    const onLoadError = vi.fn();
+    const onCompelete = vi.fn();
+
+    dotLottie = new DotLottie({
+      canvas,
+      src: textAnimSrc,
+      autoplay: true,
+    });
+
+    dotLottie.addEventListener('ready', onReady);
+    dotLottie.addEventListener('load', onLoad);
+    dotLottie.addEventListener('loadError', onLoadError);
+    dotLottie.addEventListener('complete', onCompelete);
+
+    // Pre-fetch font data
+    const fontResponse = await fetch(impactFontUrl);
+    const fontData = await fontResponse.arrayBuffer();
+
+    const fontRegistered = await DotLottie.registerFont('Impact', fontData);
+
+    expect(fontRegistered).toBe(true);
+
+    await vi.waitFor(() => {
+      expect(onReady).toHaveBeenCalled();
+    });
+
+    await vi.waitFor(() => {
+      expect(onLoad).toHaveBeenCalledTimes(1);
+    });
+
+    expect(onLoadError).not.toHaveBeenCalled();
+
+    expect(dotLottie.isLoaded).toBe(true);
+    expect(dotLottie.totalFrames).toBeGreaterThan(0);
+
+    await vi.waitFor(
+      () => {
+        expect(onCompelete).toHaveBeenCalledTimes(1);
+      },
+      { timeout: dotLottie.duration * 1000 + 500 },
+    );
+  });
+});

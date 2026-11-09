@@ -1,0 +1,1028 @@
+# @lottiefiles/dotlottie-wc
+
+## 0.11.1
+### Patch Changes
+
+- Updated dependencies [a0a6601]
+  - @lottiefiles/dotlottie-web@0.82.1
+
+## 0.11.0
+### Minor Changes
+
+- bbf324c: Add audio volume control: a `volume` config option, `setVolume()` and a `volume` getter on `DotLottie` and `DotLottieWorker`, and a `volume` prop on the React, Vue, Svelte, Solid and web component players. It goes from 0 (muted) to 1 (full), defaults to 1, and is kept across loads.
+
+### Patch Changes
+
+- Updated dependencies [bbf324c]
+- Updated dependencies [d8a4e9e]
+- Updated dependencies [3011b70]
+- Updated dependencies [211d271]
+- Updated dependencies [bbf324c]
+- Updated dependencies [ea7250c]
+  - @lottiefiles/dotlottie-web@0.82.0
+
+## 0.10.0
+### Minor Changes
+
+- e46482e: feat: add `DotLottieWorker.setWorkerUrl()` for CSP-compatible worker loading
+  
+  Ship `dist/dotlottie.worker.js` as a standalone file and add `setWorkerUrl(url)` so consumers can self-host the worker script, avoiding `worker-src: blob:` in Content-Security-Policy.
+  
+  Relative `src` paths are now resolved against the page before reaching the worker.
+
+### Patch Changes
+
+- Updated dependencies [e46482e]
+  - @lottiefiles/dotlottie-web@0.81.0
+
+## 0.9.28
+### Patch Changes
+
+- Updated dependencies [0874fae]
+- Updated dependencies [727add3]
+  - @lottiefiles/dotlottie-web@0.80.0
+
+## 0.9.27
+### Patch Changes
+
+- Updated dependencies [14aee74]
+  - @lottiefiles/dotlottie-web@0.79.2
+
+## 0.9.26
+### Patch Changes
+
+- 1c59f0c: fix(wc): element properties read through to the live player and property writes are forwarded to it
+- Updated dependencies [fe796d9]
+- Updated dependencies [605e8c7]
+  - @lottiefiles/dotlottie-web@0.79.1
+
+## 0.9.25
+### Patch Changes
+
+- Updated dependencies [efec4ac]
+- Updated dependencies [efec4ac]
+  - @lottiefiles/dotlottie-web@0.79.0
+
+## 0.9.24
+### Patch Changes
+
+- Updated dependencies [baecf78]
+  - @lottiefiles/dotlottie-web@0.78.2
+
+## 0.9.23
+### Patch Changes
+
+- Updated dependencies [9eaf3f6]
+  - @lottiefiles/dotlottie-web@0.78.1
+
+## 0.9.22
+### Patch Changes
+
+- 8e64c16: each CDN bundle is now self-contained: `dotlottie-wc.js` no longer downloads the worker code (one \~19 KB gzip file instead of \~36 KB across three)
+- 1f68270: re-export `setWasmUrl` from the `dotlottie-wc` and `dotlottie-worker-wc` CDN bundles
+- Updated dependencies [6e8c2d7]
+- Updated dependencies [6e8c2d7]
+- Updated dependencies [6818ad9]
+- Updated dependencies [3d2be0b]
+- Updated dependencies [696416a]
+- Updated dependencies [6e8c2d7]
+  - @lottiefiles/dotlottie-web@0.78.0
+
+## 0.9.21
+### Patch Changes
+
+- Updated dependencies [7af326d]
+  - @lottiefiles/dotlottie-web@0.77.1
+
+## 0.9.20
+### Patch Changes
+
+- Updated dependencies [be7b01c]
+- Updated dependencies [be7b01c]
+- Updated dependencies [be7b01c]
+  - @lottiefiles/dotlottie-web@0.77.0
+
+## 0.9.19
+### Patch Changes
+
+- Updated dependencies [ed38eb1]
+  - @lottiefiles/dotlottie-web@0.76.0
+
+## 0.9.18
+### Patch Changes
+
+- d139ebe: Forward the `loopCount` option through the framework wrappers. Previously the React, Vue, Svelte, Solid, and Web Component wrappers never passed `loopCount` to the underlying `DotLottie` instance, so the core fell back to its default of `0` (infinite) and the animation always looped forever regardless of the configured value. The wrappers now forward `loopCount` on init, on `load()` when `src`/`data` change, and reactively when the prop changes.
+
+## 0.9.17
+### Patch Changes
+
+- 6252c99: Bundle sub-path dependency imports (e.g. `lit/decorators.js`) into the self-contained ESM build so the package works via CDN without an import map.
+- Updated dependencies [6252c99]
+- Updated dependencies [e322ffb]
+  - @lottiefiles/dotlottie-web@0.75.0
+
+## 0.9.16
+### Patch Changes
+
+- Updated dependencies [9d4e54a]
+  - @lottiefiles/dotlottie-web@0.74.0
+
+## 0.9.15
+### Patch Changes
+
+- 6d2fc23: Declare `engines: { node: ">=18.17.0", npm: ">=9.5.0" }` so downstream installs run on toolchains capable of verifying npm provenance attestations.
+- 3fc6d73: Fix `useframeinterpolation="false"` attribute being ignored on initial render. Lit's default `Boolean` converter treats any attribute presence as `true`, so the value `"false"` was coerced to `true` during construction; the runtime change path already parsed `"false"` correctly via `JSON.parse`. Both paths are now consistent.
+- Updated dependencies [4c93b68]
+- Updated dependencies [4c93b68]
+- Updated dependencies [6d2fc23]
+  - @lottiefiles/dotlottie-web@0.73.0
+
+## 0.9.14
+### Patch Changes
+
+- Updated dependencies [a354c24]
+- Updated dependencies [c0011a4]
+  - @lottiefiles/dotlottie-web@0.72.1
+
+## 0.9.13
+### Patch Changes
+
+- Updated dependencies [73046d6]
+- Updated dependencies [d4df529]
+  - @lottiefiles/dotlottie-web@0.72.0
+
+## 0.9.12
+### Patch Changes
+
+- Updated dependencies [4e36cb7]
+  - @lottiefiles/dotlottie-web@0.71.0
+
+## 0.9.11
+### Patch Changes
+
+- Updated dependencies [dbac41d]
+- Updated dependencies [dbac41d]
+  - @lottiefiles/dotlottie-web@0.70.0
+
+## 0.9.10
+### Patch Changes
+
+- Updated dependencies [47d5995]
+  - @lottiefiles/dotlottie-web@0.69.0
+
+## 0.9.9
+### Patch Changes
+
+- Updated dependencies [e7c1c70]
+- Updated dependencies [cd4365c]
+  - @lottiefiles/dotlottie-web@0.68.0
+
+## 0.9.8
+### Patch Changes
+
+- Updated dependencies [01d79c4]
+  - @lottiefiles/dotlottie-web@0.67.0
+
+## 0.9.7
+### Patch Changes
+
+- Updated dependencies [95ceb90]
+  - @lottiefiles/dotlottie-web@0.66.2
+
+## 0.9.6
+### Patch Changes
+
+- Updated dependencies [901172a]
+  - @lottiefiles/dotlottie-web@0.66.1
+
+## 0.9.5
+### Patch Changes
+
+- Updated dependencies [3a1736d]
+- Updated dependencies [a7455a9]
+  - @lottiefiles/dotlottie-web@0.66.0
+
+## 0.9.4
+### Patch Changes
+
+- Updated dependencies [1797c60]
+- Updated dependencies [1797c60]
+  - @lottiefiles/dotlottie-web@0.65.0
+
+## 0.9.3
+### Patch Changes
+
+- Updated dependencies [ced9855]
+  - @lottiefiles/dotlottie-web@0.64.2
+
+## 0.9.2
+### Patch Changes
+
+- 465a20b: fix: bundle lit sub-path exports to eliminate bare module specifiers in dist output
+
+## 0.9.1
+### Patch Changes
+
+- Updated dependencies [c015630]
+  - @lottiefiles/dotlottie-web@0.64.1
+
+## 0.9.0
+### Minor Changes
+
+- 786ac3f: chore: migrate tooling to Biome, update Node/pnpm versions, and cleanup fixtures
+
+### Patch Changes
+
+- Updated dependencies [786ac3f]
+- Updated dependencies [fe95559]
+  - @lottiefiles/dotlottie-web@0.64.0
+
+## 0.8.16
+
+### Patch Changes
+
+- Updated dependencies [60640e1]
+  - @lottiefiles/dotlottie-web@0.63.0
+
+## 0.8.15
+
+### Patch Changes
+
+- Updated dependencies [de6f1e2]
+- Updated dependencies [7ab00db]
+  - @lottiefiles/dotlottie-web@0.62.0
+
+## 0.8.14
+
+### Patch Changes
+
+- Updated dependencies [8fc283f]
+  - @lottiefiles/dotlottie-web@0.61.0
+
+## 0.8.13
+
+### Patch Changes
+
+- Updated dependencies [7ad6b24]
+  - @lottiefiles/dotlottie-web@0.60.0
+
+## 0.8.12
+
+### Patch Changes
+
+- Updated dependencies [57d4cd8]
+  - @lottiefiles/dotlottie-web@0.59.0
+
+## 0.8.11
+
+### Patch Changes
+
+- Updated dependencies [d0ecda1]
+  - @lottiefiles/dotlottie-web@0.58.1
+
+## 0.8.10
+
+### Patch Changes
+
+- Updated dependencies [6091731]
+  - @lottiefiles/dotlottie-web@0.58.0
+
+## 0.8.9
+
+### Patch Changes
+
+- 68c2e26: fix: backgroundColor prop not applied on initial render in dotlottie-wc
+
+## 0.8.8
+
+### Patch Changes
+
+- d9e8f1d: fixed marker prop
+- Updated dependencies [4bf1e54]
+  - @lottiefiles/dotlottie-web@0.57.0
+
+## 0.8.7
+
+### Patch Changes
+
+- Updated dependencies [3d2eed2]
+  - @lottiefiles/dotlottie-web@0.56.0
+
+## 0.8.6
+
+### Patch Changes
+
+- Updated dependencies [34b3f1a]
+  - @lottiefiles/dotlottie-web@0.55.0
+
+## 0.8.5
+
+### Patch Changes
+
+- Updated dependencies [7fc33a7]
+  - @lottiefiles/dotlottie-web@0.54.1
+
+## 0.8.4
+
+### Patch Changes
+
+- Updated dependencies [4f7f8c1]
+  - @lottiefiles/dotlottie-web@0.54.0
+
+## 0.8.3
+
+### Patch Changes
+
+- Updated dependencies [b4d63f3]
+  - @lottiefiles/dotlottie-web@0.53.1
+
+## 0.8.2
+
+### Patch Changes
+
+- Updated dependencies [7f87fe1]
+- Updated dependencies [7f87fe1]
+- Updated dependencies [7d8b5aa]
+  - @lottiefiles/dotlottie-web@0.53.0
+
+## 0.8.1
+
+### Patch Changes
+
+- Updated dependencies [9ffec52]
+  - @lottiefiles/dotlottie-web@0.52.2
+
+## 0.8.0
+
+### Minor Changes
+
+- 7c812dc: feat: add stateMachineId and stateMachineConfig props
+
+## 0.7.7
+
+### Patch Changes
+
+- Updated dependencies [11b1fc1]
+  - @lottiefiles/dotlottie-web@0.52.1
+
+## 0.7.6
+
+### Patch Changes
+
+- Updated dependencies [0a5dd40]
+  - @lottiefiles/dotlottie-web@0.52.0
+
+## 0.7.5
+
+### Patch Changes
+
+- Updated dependencies [30c6770]
+  - @lottiefiles/dotlottie-web@0.51.2
+
+## 0.7.4
+
+### Patch Changes
+
+- Updated dependencies [f353c46]
+  - @lottiefiles/dotlottie-web@0.51.1
+
+## 0.7.3
+
+### Patch Changes
+
+- Updated dependencies [e72e6e8]
+- Updated dependencies [bfac3c6]
+  - @lottiefiles/dotlottie-web@0.51.0
+
+## 0.7.2
+
+### Patch Changes
+
+- Updated dependencies [7090211]
+  - @lottiefiles/dotlottie-web@0.50.2
+
+## 0.7.1
+
+### Patch Changes
+
+- Updated dependencies [43ebcec]
+  - @lottiefiles/dotlottie-web@0.50.1
+
+## 0.7.0
+
+### Minor Changes
+
+- a01796d: refactor: Replace manual event dispatching with WASM CallbackObserver integration
+
+### Patch Changes
+
+- Updated dependencies [a01796d]
+- Updated dependencies [41dff2e]
+- Updated dependencies [5bd67a5]
+- Updated dependencies [a01796d]
+- Updated dependencies [a01796d]
+- Updated dependencies [1744a2c]
+  - @lottiefiles/dotlottie-web@0.50.0
+
+## 0.6.4
+
+### Patch Changes
+
+- Updated dependencies [e3c09bb]
+  - @lottiefiles/dotlottie-web@0.49.0
+
+## 0.6.3
+
+### Patch Changes
+
+- Updated dependencies [950ad52]
+  - @lottiefiles/dotlottie-web@0.48.0
+
+## 0.6.3-pre.0
+
+### Patch Changes
+
+- Updated dependencies [f40ebdc]
+  - @lottiefiles/dotlottie-web@0.48.0-pre.0
+
+## 0.6.2
+
+### Patch Changes
+
+- Updated dependencies [93bae08]
+- Updated dependencies [ff1cb3a]
+  - @lottiefiles/dotlottie-web@0.47.0
+
+## 0.6.1
+
+### Patch Changes
+
+- Updated dependencies [b78ac03]
+  - @lottiefiles/dotlottie-web@0.46.0
+
+## 0.6.0
+
+### Minor Changes
+
+- 6c07dae: chore: update dotlottie-rs WASM bindings to v0.1.42
+- 6c07dae: fix: dotLottie.totalframes return correct Lottie total frames count
+
+### Patch Changes
+
+- Updated dependencies [8e8ed12]
+- Updated dependencies [6c07dae]
+- Updated dependencies [6c07dae]
+- Updated dependencies [6c07dae]
+  - @lottiefiles/dotlottie-web@0.45.0
+
+## 0.5.3
+
+### Patch Changes
+
+- Updated dependencies [57d4e8a]
+- Updated dependencies [3320fe2]
+- Updated dependencies [57d4e8a]
+  - @lottiefiles/dotlottie-web@0.44.0
+
+## 0.5.2
+
+### Patch Changes
+
+- Updated dependencies [59f4ce4]
+- Updated dependencies [ce0d9a2]
+  - @lottiefiles/dotlottie-web@0.43.0
+
+## 0.5.1
+
+### Patch Changes
+
+- Updated dependencies [faaf25e]
+- Updated dependencies [4ffcae2]
+- Updated dependencies [faaf25e]
+  - @lottiefiles/dotlottie-web@0.42.0
+
+## 0.4.6
+
+### Patch Changes
+
+- Updated dependencies [956eedb]
+  - @lottiefiles/dotlottie-web@0.41.0
+
+## 0.4.5
+
+### Patch Changes
+
+- Updated dependencies [7e6b460]
+- Updated dependencies [7e6b460]
+  - @lottiefiles/dotlottie-web@0.40.2
+
+## 0.4.4
+
+### Patch Changes
+
+- Updated dependencies [5b6ec2f]
+  - @lottiefiles/dotlottie-web@0.40.1
+
+## 0.4.3
+
+### Patch Changes
+
+- Updated dependencies [a68c984]
+- Updated dependencies [9d67d22]
+  - @lottiefiles/dotlottie-web@0.40.0
+
+## 0.4.2
+
+### Patch Changes
+
+- Updated dependencies [8ef9888]
+- Updated dependencies [1ee4ce9]
+  - @lottiefiles/dotlottie-web@0.39.0
+
+## 0.4.1
+
+### Patch Changes
+
+- Updated dependencies [fa72f98]
+  - @lottiefiles/dotlottie-web@0.38.2
+
+## 0.4.0
+
+### Minor Changes
+
+- 5df9a6e: feat: added dotLottie web worker component`dotlottie-worker-wc`
+- 5df9a6e: feat: added reactivity to attributes in both `dotlottie-wc` and `dotlottie-worker-wc`
+
+## 0.3.2
+
+### Patch Changes
+
+- Updated dependencies [898084e]
+- Updated dependencies [de079cc]
+- Updated dependencies [30ff412]
+  - @lottiefiles/dotlottie-web@0.38.1
+
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [4be7253]
+- Updated dependencies [4be7253]
+- Updated dependencies [4be7253]
+  - @lottiefiles/dotlottie-web@0.38.0
+
+## 0.3.0
+
+### Minor Changes
+
+- 0d65643: feat: updated dotLottie-rs wasm bindings to v0.1.33 which includes the new v2 dotLottiespecs and theming
+  support. feat: Added `setSlots` methods to `DotLottie` class to set lottie slots in runtime. feat: Added `themeId`
+  prop to the `DotLottie` class config to initially load a .lottie with a specific theme. feat: Added `resetTheme`
+  method to the `DotLottie` class to reset the theme to the default one.
+
+  BREAKING CHANGE:
+
+  - DotLottie's `loadTheme` method is no longer supported, use `setTheme` instead.
+  - DotLottie's `setThemeData` method is no longer supported, use `setThemeData` instead.
+
+### Patch Changes
+
+- Updated dependencies [0d65643]
+  - @lottiefiles/dotlottie-web@0.37.0
+
+## 0.3.0-beta.10
+
+### Patch Changes
+
+- Updated dependencies [9ed1a99]
+  - @lottiefiles/dotlottie-web@0.37.0-beta.9
+
+## 0.3.0-beta.9
+
+### Minor Changes
+
+- 5518192: refactor: add themeId prop to dotlottie-wc
+
+## 0.2.24-beta.8
+
+### Patch Changes
+
+- Updated dependencies [c0927ea]
+  - @lottiefiles/dotlottie-web@0.37.0-beta.8
+
+## 0.2.24-beta.7
+
+### Patch Changes
+
+- Updated dependencies [989a447]
+  - @lottiefiles/dotlottie-web@0.37.0-beta.7
+
+## 0.2.24-beta.6
+
+### Patch Changes
+
+- Updated dependencies [6a6db41]
+  - @lottiefiles/dotlottie-web@0.37.0-beta.6
+
+## 0.2.24-beta.5
+
+### Patch Changes
+
+- Updated dependencies [5192b23]
+  - @lottiefiles/dotlottie-web@0.37.0-beta.5
+
+## 0.2.24-beta.4
+
+### Patch Changes
+
+- Updated dependencies [7ef3025]
+  - @lottiefiles/dotlottie-web@0.37.0-beta.4
+
+## 0.2.24-beta.3
+
+### Patch Changes
+
+- Updated dependencies [0dcc26c]
+  - @lottiefiles/dotlottie-web@0.37.0-beta.3
+
+## 0.2.24
+
+### Patch Changes
+
+- 10670ee: added provenance to all packages
+- Updated dependencies [10670ee]
+  - @lottiefiles/dotlottie-web@0.36.1
+
+## 0.2.23
+
+### Patch Changes
+
+- Updated dependencies [26f4be4]
+  - @lottiefiles/dotlottie-web@0.36.0
+
+## 0.2.22
+
+### Patch Changes
+
+- Updated dependencies [f0e751d]
+  - @lottiefiles/dotlottie-web@0.35.0
+
+## 0.2.21
+
+### Patch Changes
+
+- Updated dependencies [40b19ef]
+  - @lottiefiles/dotlottie-web@0.34.0
+
+## 0.2.20
+
+### Patch Changes
+
+- Updated dependencies [8540831]
+  - @lottiefiles/dotlottie-web@0.33.0
+
+## 0.2.19
+
+### Patch Changes
+
+- Updated dependencies [1900885]
+- Updated dependencies [b7148b9]
+  - @lottiefiles/dotlottie-web@0.32.0
+
+## 0.2.18
+
+### Patch Changes
+
+- Updated dependencies [dd70edf]
+  - @lottiefiles/dotlottie-web@0.31.1
+
+## 0.2.17
+
+### Patch Changes
+
+- Updated dependencies [03311db]
+- Updated dependencies [e34ac54]
+- Updated dependencies [8e6f572]
+  - @lottiefiles/dotlottie-web@0.31.0
+
+## 0.2.16
+
+### Patch Changes
+
+- Updated dependencies [04fc781]
+  - @lottiefiles/dotlottie-web@0.30.3
+
+## 0.2.15
+
+### Patch Changes
+
+- ceae57f: fix(wc): 🐛 recreate DotLottie instance on reconnect
+
+## 0.2.14
+
+### Patch Changes
+
+- Updated dependencies [8419a48]
+  - @lottiefiles/dotlottie-web@0.30.2
+
+## 0.2.13
+
+### Patch Changes
+
+- Updated dependencies [78bb656]
+  - @lottiefiles/dotlottie-web@0.30.1
+
+## 0.2.12
+
+### Patch Changes
+
+- Updated dependencies [77a56bc]
+  - @lottiefiles/dotlottie-web@0.30.0
+
+## 0.2.11
+
+### Patch Changes
+
+- Updated dependencies [d942dd2]
+  - @lottiefiles/dotlottie-web@0.29.2
+
+## 0.2.10
+
+### Patch Changes
+
+- Updated dependencies [dc66e8e]
+  - @lottiefiles/dotlottie-web@0.29.1
+
+## 0.2.9
+
+### Patch Changes
+
+- Updated dependencies [400c333]
+- Updated dependencies [ca7bb5a]
+  - @lottiefiles/dotlottie-web@0.29.0
+
+## 0.2.8
+
+### Patch Changes
+
+- Updated dependencies [1d26a93]
+  - @lottiefiles/dotlottie-web@0.28.0
+
+## 0.2.7
+
+### Patch Changes
+
+- Updated dependencies [6e15246]
+  - @lottiefiles/dotlottie-web@0.27.0
+
+## 0.2.6
+
+### Patch Changes
+
+- Updated dependencies [ba46fd1]
+- Updated dependencies [d7c2c20]
+  - @lottiefiles/dotlottie-web@0.26.0
+
+## 0.2.5
+
+### Patch Changes
+
+- Updated dependencies [5b942aa]
+  - @lottiefiles/dotlottie-web@0.25.0
+
+## 0.2.4
+
+### Patch Changes
+
+- Updated dependencies [663fab2]
+- Updated dependencies [b72a4d7]
+  - @lottiefiles/dotlottie-web@0.24.0
+
+## 0.2.3
+
+### Patch Changes
+
+- Updated dependencies [6bb8561]
+  - @lottiefiles/dotlottie-web@0.23.2
+
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies [91be7a1]
+  - @lottiefiles/dotlottie-web@0.23.1
+
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [6d7673a]
+- Updated dependencies [274868e]
+- Updated dependencies [64214f7]
+- Updated dependencies [274868e]
+  - @lottiefiles/dotlottie-web@0.23.0
+
+## 0.2.0
+
+### Minor Changes
+
+- e739e6e: feat: 🎸 enable self-hosting of WASM in dotlottie-web wrappers
+
+## 0.1.9
+
+### Patch Changes
+
+- Updated dependencies [80fe2f1]
+  - @lottiefiles/dotlottie-web@0.22.0
+
+## 0.1.8
+
+### Patch Changes
+
+- Updated dependencies [6b394ca]
+  - @lottiefiles/dotlottie-web@0.21.1
+
+## 0.1.7
+
+### Patch Changes
+
+- Updated dependencies [fe68ad3]
+  - @lottiefiles/dotlottie-web@0.21.0
+
+## 0.1.6
+
+### Patch Changes
+
+- Updated dependencies [9e7a046]
+  - @lottiefiles/dotlottie-web@0.20.2
+
+## 0.1.5
+
+### Patch Changes
+
+- f91a4d6: chore: 🤖 remove node version check from package.json
+- Updated dependencies [f91a4d6]
+  - @lottiefiles/dotlottie-web@0.20.1
+
+## 0.1.4
+
+### Patch Changes
+
+- Updated dependencies [aa102b0]
+- Updated dependencies [aa102b0]
+  - @lottiefiles/dotlottie-web@0.20.0
+
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [0672481]
+  - @lottiefiles/dotlottie-web@0.19.0
+
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [bcd014b]
+  - @lottiefiles/dotlottie-web@0.18.1
+
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [65c0b29]
+  - @lottiefiles/dotlottie-web@0.18.0
+
+## 0.1.0
+
+### Minor Changes
+
+- 51ff0e9: refactor: 💡 rename `segments` to `segment`
+
+### Patch Changes
+
+- Updated dependencies [51ff0e9]
+- Updated dependencies [51ff0e9]
+  - @lottiefiles/dotlottie-web@0.17.0
+
+## 0.0.12
+
+### Patch Changes
+
+- Updated dependencies [0e521aa]
+- Updated dependencies [0e521aa]
+- Updated dependencies [0e521aa]
+  - @lottiefiles/dotlottie-web@0.16.0
+
+## 0.0.11
+
+### Patch Changes
+
+- Updated dependencies [7f659f7]
+  - @lottiefiles/dotlottie-web@0.15.0
+
+## 0.0.10
+
+### Patch Changes
+
+- Updated dependencies [b5463d5]
+  - @lottiefiles/dotlottie-web@0.14.1
+
+## 0.0.9
+
+### Patch Changes
+
+- Updated dependencies [7e0890a]
+- Updated dependencies [7e0890a]
+  - @lottiefiles/dotlottie-web@0.14.0
+
+## 0.0.8
+
+### Patch Changes
+
+- Updated dependencies [e2da7cf]
+- Updated dependencies [e2da7cf]
+- Updated dependencies [e2da7cf]
+  - @lottiefiles/dotlottie-web@0.13.0
+
+## 0.0.8-beta.1
+
+### Patch Changes
+
+- Updated dependencies [e9fdc3a]
+  - @lottiefiles/dotlottie-web@0.13.0-beta.1
+
+## 0.0.8
+
+### Patch Changes
+
+- Updated dependencies [09116cb]
+  - @lottiefiles/dotlottie-web@0.12.4
+
+## 0.0.8-beta.0
+
+### Patch Changes
+
+- Updated dependencies [4810361]
+- Updated dependencies [4810361]
+  - @lottiefiles/dotlottie-web@0.13.0-beta.0
+
+## 0.0.7
+
+### Patch Changes
+
+- Updated dependencies [cd3292e]
+  - @lottiefiles/dotlottie-web@0.12.3
+
+## 0.0.6
+
+### Patch Changes
+
+- Updated dependencies [7b2b596]
+  - @lottiefiles/dotlottie-web@0.12.2
+
+## 0.0.5
+
+### Patch Changes
+
+- Updated dependencies [1ed6c7c]
+- Updated dependencies [b0ca50e]
+  - @lottiefiles/dotlottie-web@0.12.1
+
+## 0.0.4
+
+### Patch Changes
+
+- Updated dependencies [121474d]
+- Updated dependencies [121474d]
+- Updated dependencies [121474d]
+- Updated dependencies [121474d]
+  - @lottiefiles/dotlottie-web@0.12.0
+
+## 0.0.3
+
+### Patch Changes
+
+- Updated dependencies [63333c5]
+- Updated dependencies [c135278]
+- Updated dependencies [11c7ae5]
+- Updated dependencies [fb3eeeb]
+  - @lottiefiles/dotlottie-web@0.11.1
+
+## 0.0.2
+
+### Patch Changes
+
+- Updated dependencies [495a3d5]
+- Updated dependencies [13a5217]
+- Updated dependencies [495a3d5]
+- Updated dependencies [495a3d5]
+  - @lottiefiles/dotlottie-web@0.11.0
+
+## 0.0.1
+
+### Patch Changes
+
+- Updated dependencies [e57fbac]
+- Updated dependencies [8732113]
+  - @lottiefiles/dotlottie-web@0.10.0
